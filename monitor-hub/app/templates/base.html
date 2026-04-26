@@ -109,12 +109,52 @@
   .tgl input:checked + .tgl-s{background:#34C759}
   .tgl input:checked + .tgl-s::before{transform:translateX(18px)}
 
+  /* Mobile hamburger button — hidden by default */
+  .ham{display:none;background:none;border:none;cursor:pointer;padding:6px 8px;
+       margin-right:6px;border-radius:8px;color:#1C1C1E;font-size:22px;line-height:1}
+  .ham:hover{background:rgba(60,60,67,.08)}
+  .ham:active{background:rgba(60,60,67,.14)}
+
+  /* Overlay (tap outside menu closes it) */
+  .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.40);
+           z-index:99;backdrop-filter:blur(2px)}
+  .overlay.show{display:block}
+
   @media(max-width:768px){
-    .sb{transform:translateX(-100%);transition:.25s;z-index:200}
+    .sb{transform:translateX(-100%);transition:transform .25s cubic-bezier(.4,0,.2,1);z-index:200}
     .sb.open{transform:translateX(0)}
     .main{margin-left:0}
     .body{padding:14px}
-    .top{padding:0 14px}
+    .top{padding:0 14px;height:54px;gap:6px}
+    .top h1{font-size:15px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .ham{display:inline-flex;align-items:center}
+
+    /* Top actions need to wrap on mobile so dropdowns/buttons don't overflow */
+    .top > div:last-child{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+
+    /* Cards more compact on mobile */
+    .stat-grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+    .stat .n{font-size:20px}
+    .card{padding:14px}
+
+    /* Tables scroll horizontally on mobile */
+    .ios-table-wrap,.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .tbl{min-width:600px}
+
+    /* Form grids stack on mobile */
+    [style*="grid-template-columns:1fr 220px"],
+    [style*="grid-template-columns:1fr 90px"],
+    [style*="grid-template-columns:1fr auto 90px"],
+    [style*="grid-template-columns:1fr auto 70px 60px"],
+    [style*="grid-template-columns:1fr 1fr"]{
+      grid-template-columns:1fr !important;
+    }
+
+    /* Server detail two-column → one column */
+    [style*="grid-template-columns:1fr 1fr;gap:14px"]{grid-template-columns:1fr !important}
+
+    /* Wizard install command — wrap on mobile */
+    pre{font-size:11px}
   }
 
   pre{background:#1C1C1E;color:#E5E5EA;border-radius:8px;padding:12px;
@@ -156,8 +196,13 @@
   </div>
 </aside>
 
+<div class="overlay" id="overlay"></div>
+
 <div class="main">
   <div class="top">
+    <button class="ham" id="hamBtn" aria-label="Menu" type="button">
+      <i class="bi bi-list"></i>
+    </button>
     <h1>{{ self.title() }}</h1>
     <div>{% block top_actions %}{% endblock %}</div>
   </div>
@@ -168,5 +213,42 @@
 {% endif %}
 
 {% block scripts %}{% endblock %}
+
+{% if request.session.get('user') %}
+<script>
+(function(){
+    var ham     = document.getElementById('hamBtn');
+    var overlay = document.getElementById('overlay');
+    var sb      = document.getElementById('sb');
+    if (!ham || !overlay || !sb) return;
+
+    function openMenu()  { sb.classList.add('open');    overlay.classList.add('show');    document.body.style.overflow = 'hidden'; }
+    function closeMenu() { sb.classList.remove('open'); overlay.classList.remove('show'); document.body.style.overflow = ''; }
+
+    ham.addEventListener('click', function(e){
+        e.stopPropagation();
+        sb.classList.contains('open') ? closeMenu() : openMenu();
+    });
+    overlay.addEventListener('click', closeMenu);
+
+    // Close on nav link tap (mobile)
+    document.querySelectorAll('.sb-link, .sb-out').forEach(function(a){
+        a.addEventListener('click', function(){
+            if (window.innerWidth <= 768) closeMenu();
+        });
+    });
+
+    // Close on Escape
+    document.addEventListener('keydown', function(e){
+        if (e.key === 'Escape' && sb.classList.contains('open')) closeMenu();
+    });
+
+    // Close on resize beyond mobile breakpoint
+    window.addEventListener('resize', function(){
+        if (window.innerWidth > 768) closeMenu();
+    });
+})();
+</script>
+{% endif %}
 </body>
 </html>
