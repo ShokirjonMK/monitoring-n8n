@@ -94,6 +94,23 @@ class WebhookEvent(SQLModel, table=True):
     forwarded_to: Optional[str] = None
 
 
+class InstallToken(SQLModel, table=True):
+    """One-time token for self-register install flow.
+
+    Hub generates → user runs script with token → script registers server back.
+    Token expires after 1 hour or on first use.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    token: str = Field(unique=True, index=True)
+    suggested_name: Optional[str] = None        # admin pre-fills before generating
+    suggested_description: Optional[str] = None
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    expires_at: datetime.datetime
+    used_at: Optional[datetime.datetime] = None
+    registered_server_id: Optional[int] = None  # set when register succeeds
+    created_by: Optional[str] = None            # admin username
+
+
 class AISettings(SQLModel, table=True):
     """Singleton — id always = 1."""
     id: int = Field(default=1, primary_key=True)

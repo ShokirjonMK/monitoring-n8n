@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
 # monitor-agent — bir qator o'rnatish skripti.
 #
-# Foydalanish (yangi serverda):
-#   curl -fsSL https://raw.githubusercontent.com/ShokirjonMK/monitoring-n8n/main/install.sh | bash
+# IKKI usul:
 #
-# Yoki repoga tegmasdan, mahalliy nusxa bilan:
-#   bash install.sh
+# A) Tezkor (Hub'ga avtomat ulanish — TAVSIYA):
+#    Hub UI'da "Generate install command" tugmasidan olingan buyruqni ishga tushiring:
+#      curl -fsSL http://YOUR_HUB:9991/install/<TOKEN> | bash
+#    Skript o'rnatadi va Hub'ga avtomat qayd qiladi.
 #
-# Skript:
-#   1. /opt/monitor-agent papkasini yaratadi (yoki yangilaydi)
-#   2. config.yml ni minimal default bilan yaratadi (allaqachon mavjud bo'lmasa)
-#   3. .agent-secret tokenini generatsiya qiladi
-#   4. Container ishga tushuradi
-#   5. So'ngida Hub'ga qo'shish uchun BARCHA ma'lumotlarni chop etadi
+# B) Qo'lda (eski usul — INSTALL_TOKEN bo'lmasa):
+#    curl -fsSL https://raw.githubusercontent.com/ShokirjonMK/monitoring-n8n/main/install.sh | bash
+#    So'ngida tokenni va URL'ni qo'lda Hub formaga yozasiz.
 
 set -euo pipefail
 
-REPO="https://github.com/ShokirjonMK/monitoring-n8n.git"
-AGENT_DIR="/opt/monitor-agent"
+REPO="${MONITOR_REPO:-https://github.com/ShokirjonMK/monitoring-n8n.git}"
+AGENT_DIR="${AGENT_DIR:-/opt/monitor-agent}"
 PORT="${MONITOR_AGENT_PORT:-9990}"
+
+# Self-register parameters (when launched via Hub /install/<token>)
+HUB_URL="${HUB_URL:-}"
+INSTALL_TOKEN="${INSTALL_TOKEN:-}"
 
 c_red()    { printf "\033[31m%s\033[0m" "$*"; }
 c_green()  { printf "\033[32m%s\033[0m" "$*"; }
@@ -79,8 +81,9 @@ cd "$AGENT_DIR"
 
 step "3. Konfiguratsiya"
 
+HOSTNAME_GUESS="$(hostname -s 2>/dev/null || echo new-server)"
+
 if [ ! -f config.yml ]; then
-    HOSTNAME_GUESS="$(hostname -s 2>/dev/null || echo new-server)"
     cat > config.yml <<EOF
 # monitor-agent konfiguratsiyasi.
 # Tahrirlang — kuzatiladigan endpointlar, bazalar va backuplarni qo'shing.
@@ -94,22 +97,14 @@ endpoints: []
 
 # Postgres (docker exec) yoki SQLite (file)
 databases: []
-# Misol:
-#   - {name: app, type: postgres, container: app-postgres, db: app, user: app}
-#   - {name: cache, type: sqlite, path: /opt/myapp/cache.db}
 
 # Backuplar
 backups: []
-# Misol:
-#   - {name: app, type: pg_dump, container: app-postgres, db: app, user: app}
-#   - {name: cache, type: sqlite_copy, path: /opt/myapp/cache.db}
 
 backup_retention_days: 30
 
 # SSL nazorat
 domains: []
-# Misol:
-#   - {host: example.com, port: 443}
 
 # Threshold qiymatlari
 thresholds:
@@ -118,7 +113,6 @@ thresholds:
   load_1m: 5.0
 EOF
     ok "config.yml minimal default bilan yaratildi"
-    warn "Kuzatish uchun config.yml ni tahrirlab endpointlar/bazalarni qo'shing!"
 else
     ok "Mavjud config.yml saqlandi"
 fi
@@ -133,54 +127,89 @@ else
     ok "Mavjud token saqlandi"
 fi
 
-TOKEN=$(cat .agent-secret)
+AGENT_TOKEN=$(cat .agent-secret)
 
 # ─── 5. Build + start ────────────────────────────────────────────────────────
 
 step "4. Container build va ishga tushirish"
 
 docker compose up -d --build 2>&1 | tail -3
-sleep 3
+sleep 4
 
 if curl -sf "http://localhost:${PORT}/health" >/dev/null 2>&1; then
     ok "Agent ishlamoqda: http://localhost:${PORT}"
 else
-    warn "Agent javob bermayapti — log ko'rib chiqing: docker logs monitor-agent --tail 30"
+    err "Agent javob bermayapti — log: docker logs monitor-agent --tail 30"
+    exit 1
 fi
 
-# ─── 6. Print Hub-add instructions ───────────────────────────────────────────
+# ─── 6. Public IP ────────────────────────────────────────────────────────────
 
 PUBLIC_IP="$(curl -fsSL --max-time 5 -4 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')"
+ok "Public IP: ${PUBLIC_IP}"
 
-cat <<EOT
+# ─── 7. Self-register with Hub (if INSTALL_TOKEN provided) ───────────────────
+
+if [ -n "$HUB_URL" ] && [ -n "$INSTALL_TOKEN" ]; then
+    step "5. Hub'ga avtomat qayd qilish"
+
+    REGISTER_PAYLOAD=$(printf '{"name":"%s","public_ip":"%s","port":%d,"agent_token":"%s"}' \
+        "$HOSTNAME_GUESS" "$PUBLIC_IP" "$PORT" "$AGENT_TOKEN")
+
+    REG_RESP=$(curl -fsS -m 30 -X POST \
+        "${HUB_URL}/register/${INSTALL_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "$REGISTER_PAYLOAD" 2>&1) || {
+        err "Hub'ga qayd qilib bo'lmadi: ${REG_RESP}"
+        warn "Quyidagi ma'lumotlar bilan qo'lda qayd qiling:"
+        echo
+        echo "    Nomi:  $HOSTNAME_GUESS"
+        echo "    URL:   http://${PUBLIC_IP}:${PORT}"
+        echo "    Token: $AGENT_TOKEN"
+        echo
+        exit 1
+    }
+
+    if echo "$REG_RESP" | grep -q '"ok":[ ]*true'; then
+        ok "Hub'da qayd qilindi! Hub UI'ni yangilang — server ro'yxatda paydo bo'ladi."
+        cat <<EOT
+
+
+$(c_bold "═════════════════════════════════════════════════════════════")
+$(c_green "✓ Tayyor! Hub avtomat qayd qildi.")
+$(c_bold "═════════════════════════════════════════════════════════════")
+
+  Server: $(c_bold "$HOSTNAME_GUESS")
+  URL:    http://${PUBLIC_IP}:${PORT}
+  Hub:    ${HUB_URL}
+
+Keyingi qadam: ${HUB_URL}/servers ga kiring va serverni
+to'liq config qiling (endpointlar, bazalar, backuplar).
+
+Config faylni tahrirlang:
+  $(c_blue "nano $AGENT_DIR/config.yml")
+
+Qayta yuklash:
+  $(c_blue "curl -X POST -H 'Authorization: Bearer \$(cat $AGENT_DIR/.agent-secret)' http://localhost:${PORT}/reload")
+
+EOT
+    else
+        warn "Register javob: $REG_RESP"
+    fi
+else
+    # Manual mode — print info
+    cat <<EOT
 
 
 $(c_bold "═════════════════════════════════════════════════════════════")
 $(c_green "✓ Agent o'rnatildi va ishlamoqda!")
 $(c_bold "═════════════════════════════════════════════════════════════")
 
-$(c_bold "Endi Hub UI'da quyidagi ma'lumotlarni kiriting:")
+$(c_bold "Hub UI'ga quyidagilarni kiriting:")
 
-  $(c_bold "Nomi:")        ${HOSTNAME_GUESS:-$(hostname -s)}
+  $(c_bold "Nomi:")        ${HOSTNAME_GUESS}
   $(c_bold "Agent URL:")   http://${PUBLIC_IP}:${PORT}
-  $(c_bold "Token:")       ${TOKEN}
-
-$(c_bold "Hub URL:")    http://YOUR_HUB:9991/servers/new
-
-─────────────────────────────────────────────────────────────
-
-$(c_bold "Keyingi qadamlar:")
-
-1. config.yml ni tahrirlang:
-   $(c_blue "nano $AGENT_DIR/config.yml")
-   — endpointlar, bazalar, backuplar va SSL domenlarini qo'shing
-
-2. Configni qayta yuklang (restartsiz):
-   $(c_blue "curl -X POST -H 'Authorization: Bearer \$(cat $AGENT_DIR/.agent-secret)' http://localhost:${PORT}/reload")
-
-3. Agent loglari:
-   $(c_blue "docker logs monitor-agent --tail 50 -f")
-
-4. Hub UI'da serverni qo'shing — Hub avtomat tarzda nazorat boshlaydi.
+  $(c_bold "Token:")       ${AGENT_TOKEN}
 
 EOT
+fi

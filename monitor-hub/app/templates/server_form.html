@@ -9,65 +9,60 @@
   </div>
 
   {% if not server %}
-  <!-- ════════ Wizard for ADD ════════ -->
-  <div class="card" style="margin-bottom:18px;background:linear-gradient(135deg,rgba(0,122,255,.04),rgba(0,122,255,.01));border-left:3px solid #007AFF">
+  <!-- ════════ Tezkor (auto-register) flow ════════ -->
+  <div class="card" style="margin-bottom:18px;background:linear-gradient(135deg,rgba(52,199,89,.06),rgba(52,199,89,.01));border-left:3px solid #34C759">
     <div class="card-h">
-      <h2><i class="bi bi-magic"></i> Wizard — yangi server qo'shish</h2>
+      <h2><i class="bi bi-lightning-charge"></i> Tezkor — bitta buyruq bilan</h2>
     </div>
 
-    <ol style="padding-left:24px;margin:0">
-      <li style="margin-bottom:18px">
-        <strong>1. Yangi serverga SSH bilan kirib, quyidagi 1 qator buyruqni ishga tushiring:</strong>
-        <div style="position:relative;background:#1C1C1E;color:#E5E5EA;padding:14px 50px 14px 16px;border-radius:8px;margin-top:8px;font-family:'SF Mono',Menlo,monospace;font-size:12.5px;overflow-x:auto" id="installCmd">
-curl -fsSL https://raw.githubusercontent.com/ShokirjonMK/monitoring-n8n/main/install.sh | bash
-        </div>
-        <button type="button" class="btn btn-sec btn-sm" style="margin-top:6px"
-                onclick="navigator.clipboard.writeText(document.getElementById('installCmd').textContent.trim()); this.innerHTML='<i class=&quot;bi bi-check-lg&quot;></i> Nusxalandi'">
+    <div style="font-size:13px;color:#3A3A3C;margin-bottom:14px;line-height:1.6">
+      Yangi serverga ham SSH qilasiz, bir qator buyruqni ishga tushirasiz —
+      skript o'zi o'rnatadi va Hub'ga avtomat qayd qiladi. <b>Token va URL nusxalash kerak emas.</b>
+    </div>
+
+    <!-- Pre-fill name (optional) -->
+    <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;margin-bottom:12px">
+      <div>
+        <label class="lbl">Server nomi (ixtiyoriy)</label>
+        <input class="inp" id="qName" placeholder="bo'sh qoldirilsa hostname ishlatadi (masalan: dev-1)">
+      </div>
+      <button type="button" class="btn btn-pri" onclick="generateInstall()" id="genBtn">
+        <i class="bi bi-magic"></i> Buyruq yaratish
+      </button>
+    </div>
+
+    <div id="installResult" style="display:none">
+      <div style="position:relative;background:#1C1C1E;color:#E5E5EA;padding:14px 16px;border-radius:8px;font-family:'SF Mono',Menlo,monospace;font-size:11.5px;overflow-x:auto;line-height:1.5">
+        <div id="installCmd" style="word-break:break-all;white-space:pre-wrap"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="btn btn-pri btn-sm" onclick="copyInstallCmd(this)">
           <i class="bi bi-clipboard"></i> Buyruqni nusxalash
         </button>
-        <div class="hlp" style="margin-top:8px">
-          Skript Docker'ni tekshirib, kodni yuklab, container'ni ishga tushiradi va keyin
-          <strong>Token</strong> + <strong>URL</strong>'ni chop etadi — ularni quyiga yopishtiring.
-        </div>
-      </li>
-
-      <li style="margin-bottom:18px">
-        <strong>2. Skriptdan chiqqan ma'lumotlarni quyiga yozing:</strong>
-        <div class="hlp" style="margin-top:6px">
-          Skript so'ngida 3 qator chiqaradi: <code>Nomi</code>, <code>Agent URL</code>, <code>Token</code>.
-          Forma quyida ularni qabul qiladi.
-        </div>
-      </li>
-
-      <li>
-        <strong>3. Test va saqlash</strong>
-        <div class="hlp" style="margin-top:6px">
-          "Aloqani sinash" tugmasini bosing — agar yashil bo'lsa, saqlang. Hub avtomat tarzda nazoratga oladi.
-        </div>
-      </li>
-    </ol>
-
-    <details style="margin-top:14px">
-      <summary style="cursor:pointer;font-size:13px;color:#007AFF;font-weight:600">
-        ▸ Qo'lda o'rnatish (skriptsiz)
-      </summary>
-      <div style="margin-top:10px;padding:12px;background:#FAFAFA;border-radius:8px;font-size:13px">
-        <pre style="margin:0;font-size:12px"># 1. Yangi serverda
-git clone https://github.com/ShokirjonMK/monitoring-n8n /opt/m
-cd /opt/m/monitor-agent
-cp config.example.yml config.yml
-nano config.yml          # endpointlar, bazalarni kiriting
-openssl rand -hex 32 > .agent-secret
-docker compose up -d --build
-
-# 2. Tokenni ko'chiring:
-cat .agent-secret
-
-# 3. Public IP:
-curl -4 ifconfig.me</pre>
+        <span class="hlp" style="margin:0">
+          Yangi serverga SSH qiling va shu buyruqni qo'ying — natija avtomat shu yerda ko'rinadi.
+        </span>
       </div>
-    </details>
+      <div id="waiting" style="display:none;margin-top:14px;padding:14px;background:rgba(0,122,255,.04);border-radius:8px;font-size:13px">
+        <i class="bi bi-hourglass-split" id="waitIcon"></i>
+        <span id="waitText">Skript ishga tushirilishini kutmoqda... Tokenning amal qilish muddati 1 soat.</span>
+      </div>
+    </div>
   </div>
+
+  <!-- ════════ Manual ════════ -->
+  <details style="margin-bottom:18px">
+    <summary style="cursor:pointer;padding:10px 14px;background:#FAFAFA;border-radius:8px;font-size:13.5px;color:#3A3A3C;font-weight:600">
+      ▸ Qo'lda kiritish (skriptsiz, eski usul)
+    </summary>
+    <div style="padding:12px 0;font-size:13px">
+      Agar tezkor flow ishlamasa (masalan, server lokalda Hub'ga ulana olmasa),
+      qo'lda o'rnatasiz va quyidagi formaga ma'lumotlarni yozasiz:
+      <pre style="margin-top:8px;font-size:12px">curl -fsSL https://raw.githubusercontent.com/ShokirjonMK/monitoring-n8n/main/install.sh | bash
+# Skript so'ngidagi Nomi, URL, Token'ni nusxalang.
+# Pastdagi formaga yopishtiring.</pre>
+    </div>
+  </details>
   {% endif %}
 
   {% if error %}<div class="bdg bdg-dan" style="display:block;margin-bottom:14px;padding:10px 14px">{{ error }}</div>{% endif %}
@@ -207,6 +202,68 @@ async function testChannels() {
 {% endif %}
 
 <script>
+let _pollTimer = null;
+let _generatedToken = null;
+
+async function generateInstall() {
+  const name = document.getElementById('qName').value.trim();
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Yaratilmoqda...';
+  try {
+    const r = await fetch('/api/install-token', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name})
+    });
+    const j = await r.json();
+    _generatedToken = j.token;
+
+    document.getElementById('installCmd').textContent = j.command;
+    document.getElementById('installResult').style.display = 'block';
+    document.getElementById('waiting').style.display = 'block';
+
+    // Poll every 4s for register-completion
+    if (_pollTimer) clearInterval(_pollTimer);
+    _pollTimer = setInterval(checkRegistered, 4000);
+  } catch (e) {
+    alert('Xato: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-magic"></i> Buyruq yaratish';
+  }
+}
+
+function copyInstallCmd(btn) {
+  const cmd = document.getElementById('installCmd').textContent;
+  navigator.clipboard.writeText(cmd).then(() => {
+    btn.innerHTML = '<i class="bi bi-check-lg"></i> Nusxalandi';
+    setTimeout(() => { btn.innerHTML = '<i class="bi bi-clipboard"></i> Buyruqni nusxalash'; }, 2000);
+  });
+}
+
+async function checkRegistered() {
+  if (!_generatedToken) return;
+  try {
+    const r = await fetch('/api/install-token-status?token=' + encodeURIComponent(_generatedToken));
+    const j = await r.json();
+    if (j.registered_server_id) {
+      clearInterval(_pollTimer);
+      const wait = document.getElementById('waiting');
+      wait.style.background = 'rgba(52,199,89,.10)';
+      wait.innerHTML = '<i class="bi bi-check-circle-fill" style="color:#34C759"></i> ' +
+                       '<b>Server qo\'shildi!</b> "' + j.server_name + '" ro\'yxatda paydo bo\'ldi. ' +
+                       '<a href="/servers/' + j.registered_server_id + '">Batafsil ko\'rish →</a>';
+    } else if (j.expired) {
+      clearInterval(_pollTimer);
+      const wait = document.getElementById('waiting');
+      wait.style.background = 'rgba(255,59,48,.06)';
+      wait.innerHTML = '⚠️ Token muddati tugadi. Yangi buyruq yaratish uchun tugmani qaytadan bosing.';
+    }
+  } catch (e) {
+    // ignore polling errors
+  }
+}
+
 async function probeAgent() {
   const url = document.getElementById('baseUrl').value.trim().replace(/\/$/, '');
   const token = document.getElementById('agentToken').value.trim();

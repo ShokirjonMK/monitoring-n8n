@@ -152,6 +152,169 @@ async def api_dashboard(_=Depends(require_login)):
     return await AGENT.gather_all_status(servers)
 
 
+# ─── Self-register install flow ───────────────────────────────────────────────
+
+@app.post("/api/install-token")
+async def api_install_token(request: Request, _=Depends(require_login)):
+    """Generate a one-time install token. Body: {name?, description?}."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    token = secrets.token_urlsafe(24)
+    expires = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+    with Session(DB.engine) as s:
+        it = DB.InstallToken(
+            token=token,
+            suggested_name=(body.get("name") or "").strip() or None,
+            suggested_description=(body.get("description") or "").strip() or None,
+            expires_at=expires,
+            created_by=request.session.get("user"),
+        )
+        s.add(it); s.commit()
+
+    # Build the public hub URL from request
+    scheme = request.url.scheme
+    host = request.url.netloc
+    hub_url = f"{scheme}://{host}"
+    install_cmd = (
+        f'curl -fsSL "{hub_url}/install/{token}" | '
+        f'HUB_URL="{hub_url}" INSTALL_TOKEN="{token}" bash'
+    )
+    return {
+        "token": token,
+        "hub_url": hub_url,
+        "install_url": f"{hub_url}/install/{token}",
+        "command": install_cmd,
+        "expires_at": expires.isoformat(),
+    }
+
+
+@app.get("/api/install-token-status")
+async def api_install_token_status(token: str, _=Depends(require_login)):
+    """Polled by the form to detect when the remote agent has registered."""
+    with Session(DB.engine) as s:
+        it = s.exec(select(DB.InstallToken).where(DB.InstallToken.token == token)).first()
+        if not it:
+            return {"error": "not found"}
+        out = {
+            "expired": it.expires_at < datetime.datetime.utcnow() and not it.used_at,
+            "used": bool(it.used_at),
+            "registered_server_id": it.registered_server_id,
+        }
+        if it.registered_server_id:
+            srv = s.exec(select(DB.Server).where(DB.Server.id == it.registered_server_id)).first()
+            if srv:
+                out["server_name"] = srv.name
+        return out
+
+
+@app.get("/install/{token}")
+async def install_script(token: str):
+    """Public — serves the install.sh script. The token in the URL ensures only
+    intended hosts download it; unknown tokens get the script anyway since it's
+    the same for everyone (the *register* step is what actually enforces the
+    token). We return the script regardless so curl|bash works."""
+    import urllib.request
+    # Fetch from GitHub raw to keep it always fresh
+    src = "https://raw.githubusercontent.com/ShokirjonMK/monitoring-n8n/main/install.sh"
+    try:
+        with urllib.request.urlopen(src, timeout=10) as r:
+            content = r.read().decode("utf-8")
+    except Exception as e:
+        log.error(f"failed to fetch install.sh: {e}")
+        return Response(f"#!/bin/bash\necho 'install.sh fetch failed: {e}'\nexit 1\n",
+                        media_type="text/x-shellscript", status_code=500)
+    return Response(content, media_type="text/x-shellscript")
+
+
+@app.post("/register/{token}")
+async def register_server(token: str, request: Request):
+    """Called by install.sh after the agent boots. Body:
+       {name, public_ip, port, agent_token}.
+       Hub probes the agent to verify, then creates a Server row.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
+
+    name = (body.get("name") or "").strip() or "new-server"
+    public_ip = (body.get("public_ip") or "").strip()
+    port = int(body.get("port") or 9990)
+    agent_token = (body.get("agent_token") or "").strip()
+    if not public_ip or not agent_token:
+        return JSONResponse({"ok": False, "error": "public_ip va agent_token kerak"}, status_code=400)
+
+    base_url = f"http://{public_ip}:{port}"
+
+    with Session(DB.engine) as s:
+        it = s.exec(select(DB.InstallToken).where(DB.InstallToken.token == token)).first()
+        if not it:
+            return JSONResponse({"ok": False, "error": "noma'lum token"}, status_code=404)
+        if it.used_at:
+            return JSONResponse({"ok": False, "error": "token allaqachon ishlatilgan",
+                                 "registered_server_id": it.registered_server_id}, status_code=409)
+        if it.expires_at < datetime.datetime.utcnow():
+            return JSONResponse({"ok": False, "error": "token muddati o'tgan"}, status_code=410)
+
+        # Verify the agent is reachable before saving
+        h = await AGENT.health(base_url)
+        if "_error" in (h or {}):
+            return JSONResponse({"ok": False,
+                "error": f"Hub agent'ga ulanib bo'lmadi: {(h or {}).get('_error', '?')[:200]}"
+            }, status_code=502)
+        st = await AGENT.status(base_url, agent_token)
+        if "_error" in (st or {}):
+            return JSONResponse({"ok": False,
+                "error": f"Token noto'g'ri yoki status xato: {(st or {}).get('_error', '?')[:200]}"
+            }, status_code=502)
+
+        # Resolve unique name conflict
+        final_name = it.suggested_name or name
+        if s.exec(select(DB.Server).where(DB.Server.name == final_name)).first():
+            final_name = f"{final_name}-{secrets.token_hex(2)}"
+
+        srv = DB.Server(
+            name=final_name,
+            base_url=base_url,
+            agent_token=agent_token,
+            description=it.suggested_description,
+            is_active=True,
+        )
+        s.add(srv); s.commit(); s.refresh(srv)
+
+        # Mark token used
+        it.used_at = datetime.datetime.utcnow()
+        it.registered_server_id = srv.id
+        s.add(it); s.commit()
+
+        log.info(f"Self-registered server: {final_name} ({base_url}) via token {token[:8]}...")
+
+    # Notify Telegram (default channel)
+    try:
+        await NOTIFY.send_message(
+            NOTIFY.resolve_report_channel(None),
+            f"🆕 <b>Yangi server qo'shildi</b>\n"
+            f"Nomi: <b>{NOTIFY.html_escape(final_name)}</b>\n"
+            f"URL: <code>{base_url}</code>\n"
+            f"Containerlar: {len(st.get('containers', []))} · "
+            f"Endpointlar: {len(st.get('endpoints', []))} · "
+            f"Bazalar: {len(st.get('databases', []))}"
+        )
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "server_id": srv.id,
+        "server_name": final_name,
+        "containers": len(st.get("containers", [])),
+        "endpoints": len(st.get("endpoints", [])),
+        "databases": len(st.get("databases", [])),
+    }
+
+
 @app.post("/api/probe-agent")
 async def api_probe_agent(request: Request, _=Depends(require_login)):
     """Test connectivity to a candidate agent before saving the server."""
