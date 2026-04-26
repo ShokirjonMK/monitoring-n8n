@@ -4,8 +4,13 @@
 
 {% block top_actions %}
 <a href="/servers/{{ server.id }}/edit" class="btn btn-sec btn-sm"><i class="bi bi-pencil"></i> Tahrirlash</a>
-<button class="btn btn-sec btn-sm" onclick="sendDigest()" id="digestBtn"><i class="bi bi-file-text"></i> Digest yuborish</button>
-<button class="btn btn-pri btn-sm" onclick="runBackup()" id="backupBtn"><i class="bi bi-archive"></i> Backup yuborish</button>
+<button class="btn btn-sec btn-sm" onclick="sendDigest()" id="digestBtn"><i class="bi bi-file-text"></i> Digest</button>
+<button class="btn btn-pri btn-sm" onclick="runBackup()" id="backupBtn"><i class="bi bi-archive"></i> Backup</button>
+{% if ai_enabled %}
+<button class="btn btn-pri btn-sm" onclick="explainWithAI()" id="aiBtn" style="background:linear-gradient(135deg,#007AFF,#5856D6)">
+  <i class="bi bi-stars"></i> AI tahlil
+</button>
+{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -98,6 +103,67 @@
   </div>
 </div>
 
+<!-- AI panel -->
+<div id="aiPanel" class="card" style="margin-top:14px;display:none;border-left:3px solid #007AFF">
+  <div class="card-h">
+    <h2><i class="bi bi-stars"></i> AI tahlili</h2>
+    <button class="btn btn-sec btn-sm" onclick="document.getElementById('aiPanel').style.display='none'"><i class="bi bi-x"></i></button>
+  </div>
+  <div id="aiOut" style="white-space:pre-wrap;font-size:13.5px;line-height:1.5;font-family:-apple-system,sans-serif"></div>
+</div>
+
+<!-- Recent activity (24h) -->
+<div class="card" style="margin-top:14px">
+  <div class="card-h">
+    <h2><i class="bi bi-clock-history"></i> So'nggi 24 soat faollik</h2>
+    <div style="font-size:12px;color:#8E8E93">
+      {{ recent_alerts|length }} alert · {{ recent_runs|length }} status check
+    </div>
+  </div>
+
+  {% if recent_alerts %}
+  <div style="margin-bottom:14px">
+    <h3 style="font-size:12px;text-transform:uppercase;color:#8E8E93;letter-spacing:.4px;margin:0 0 8px">Alertlar</h3>
+    {% for a in recent_alerts %}
+      <div style="display:flex;align-items:start;gap:10px;padding:10px;border-radius:8px;background:{% if a.resolved_at %}rgba(52,199,89,.05){% elif a.fired %}rgba(255,59,48,.06){% else %}rgba(255,149,0,.06){% endif %};margin-bottom:6px">
+        <div style="font-size:18px;line-height:1">
+          {% if a.resolved_at %}🟢{% elif a.fired %}🔴{% else %}🟠{% endif %}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px"><strong>{{ a.monitor_type }}</strong> · <code style="font-size:11px">{{ a.key }}</code></div>
+          <div style="font-size:11.5px;color:#8E8E93;margin-top:2px">
+            {{ a.opened_at.strftime('%H:%M') }}
+            {% if a.fired_at %}→ fired {{ a.fired_at.strftime('%H:%M') }}{% endif %}
+            {% if a.resolved_at %}→ resolved {{ a.resolved_at.strftime('%H:%M') }}{% endif %}
+          </div>
+        </div>
+        {% if ai_enabled and not a.resolved_at %}
+        <button class="btn btn-sec btn-sm" onclick="suggestFix({{ a.id }})" style="white-space:nowrap">
+          <i class="bi bi-lightbulb"></i> AI fix
+        </button>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if recent_runs %}
+  <h3 style="font-size:12px;text-transform:uppercase;color:#8E8E93;letter-spacing:.4px;margin:0 0 8px">Status timeline (so'nggi 40 ta tick)</h3>
+  <div style="display:flex;gap:2px;flex-wrap:wrap;font-family:monospace;font-size:0">
+    {% for r in recent_runs|reverse %}
+      <span title="{{ r.ran_at.strftime('%H:%M:%S') }} · {{ r.status }} · {{ r.summary or '' }}"
+            style="display:inline-block;width:14px;height:24px;border-radius:3px;
+                   background:{% if r.status == 'ok' %}#34C759{% elif r.status == 'degraded' %}#FF9500{% elif r.status == 'down' %}#FF3B30{% else %}#8E8E93{% endif %};"></span>
+    {% endfor %}
+  </div>
+  <div style="font-size:11.5px;color:#8E8E93;margin-top:6px">
+    🟢 OK · 🟠 degraded · 🔴 down — eski → yangi (so'nggi tick o'ng tomonda)
+  </div>
+  {% else %}
+  <div style="color:#8E8E93;font-size:13px">Hali check tarixi yo'q. Hub har 60 soniyada yangi tick yozadi.</div>
+  {% endif %}
+</div>
+
 <!-- Backups -->
 <div class="card" style="margin-top:14px">
   <div class="card-h">
@@ -146,6 +212,42 @@ async function runBackup() {
     btn.innerHTML = '<i class="bi bi-archive"></i> Backup yuborish';
   }
 }
+async function explainWithAI() {
+  const btn = document.getElementById('aiBtn');
+  const panel = document.getElementById('aiPanel');
+  const out = document.getElementById('aiOut');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Tahlil qilinmoqda...';
+  panel.style.display = 'block';
+  out.textContent = '⏳ Claude server holatini tahlil qilmoqda...';
+  panel.scrollIntoView({behavior:'smooth', block:'start'});
+  try {
+    const r = await fetch('/ai/explain-server/{{ server.id }}', {method:'POST'});
+    const j = await r.json();
+    out.textContent = j.reply || j.error || '?';
+  } catch (e) {
+    out.textContent = 'Xato: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-stars"></i> AI tahlil';
+  }
+}
+
+async function suggestFix(alertId) {
+  const panel = document.getElementById('aiPanel');
+  const out = document.getElementById('aiOut');
+  panel.style.display = 'block';
+  out.textContent = '⏳ Claude alert uchun yechim qidirmoqda...';
+  panel.scrollIntoView({behavior:'smooth', block:'start'});
+  try {
+    const r = await fetch('/ai/suggest-fix/' + alertId, {method:'POST'});
+    const j = await r.json();
+    out.textContent = j.reply || j.error || '?';
+  } catch (e) {
+    out.textContent = 'Xato: ' + e.message;
+  }
+}
+
 async function sendDigest() {
   const btn = document.getElementById('digestBtn');
   btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> ...';

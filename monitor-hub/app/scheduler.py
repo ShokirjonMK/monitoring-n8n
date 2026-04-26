@@ -380,12 +380,43 @@ async def backup_tick():
 # ─── Daily digest (08:00) ─────────────────────────────────────────────────────
 
 async def daily_digest():
-    """Send a daily report per server to its report channel."""
+    """Send a daily report per server to its report channel.
+
+    If HubSettings.use_ai_digest = true and AI is configured, Claude generates
+    the message instead of using the templated formatter.
+    """
     with Session(DB.engine) as s:
         servers = list(s.exec(select(DB.Server).where(DB.Server.is_active == True)).all())
+        hub = _hub_settings()
+        ai = s.exec(select(DB.AISettings).where(DB.AISettings.id == 1)).first()
+
+    use_ai = (hub and hub.use_ai_digest) and (ai and ai.enabled and ai.api_key)
 
     for srv in servers:
         st = await AGENT.status(srv.base_url, srv.agent_token)
+        if use_ai and st and "_error" not in st:
+            try:
+                from . import ai as AI
+                # Recent alerts for this server
+                with Session(DB.engine) as s2:
+                    cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+                    recent = s2.exec(
+                        select(DB.AlertHistory)
+                        .where(DB.AlertHistory.server_id == srv.id)
+                        .where(DB.AlertHistory.opened_at > cutoff)
+                        .limit(20)
+                    ).all()
+                recent_dicts = [{"type": a.monitor_type, "key": a.key, "level": a.level,
+                                 "message": a.message, "fired": a.fired,
+                                 "resolved": a.resolved_at is not None} for a in recent]
+                text = AI.smart_digest(ai.api_key, ai.model, ai.system_prompt,
+                                       {"name": srv.name, "status": st}, recent_dicts)
+                await NOTIFY.send_message(NOTIFY.resolve_report_channel(srv), text)
+                continue
+            except Exception as e:
+                log.warning(f"AI digest failed for {srv.name}: {e} — falling back to template")
+
+        # Templated digest fallback
         if not st or "_error" in st:
             text = f"☀️ <b>{srv.name}</b> — kunlik hisobot\n\n🔴 Server javob bermayapti."
         else:

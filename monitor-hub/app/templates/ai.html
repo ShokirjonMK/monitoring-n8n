@@ -14,54 +14,162 @@
 
 {% block content %}
 {% if not configured %}
-<div class="card" style="text-align:center;padding:50px">
-  <div style="font-size:50px">🤖</div>
+<div class="card" style="text-align:center;padding:50px;background:linear-gradient(135deg,rgba(0,122,255,.04),rgba(88,86,214,.04))">
+  <div style="font-size:60px">🤖</div>
   <h2 style="margin:14px 0 8px">AI hali sozlanmagan</h2>
-  <p style="color:#8E8E93;margin:0 0 18px">
-    Sozlamalar bo'limida Anthropic API kalitini kiriting va AI ni yoqing.
+  <p style="color:#8E8E93;margin:0 0 8px;line-height:1.6">
+    Claude (Anthropic) bilan integratsiya qilish uchun:
   </p>
-  <a href="/settings" class="btn btn-pri"><i class="bi bi-gear"></i> Sozlamalarga o'tish</a>
+  <div style="text-align:left;max-width:480px;margin:14px auto;font-size:13.5px;color:#3A3A3C;line-height:1.7">
+    <ol style="padding-left:20px;margin:0">
+      <li><a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:#007AFF">console.anthropic.com</a> — sizdagi Anthropic akkauntda <strong>Settings → API Keys</strong></li>
+      <li>"Create Key" — yangi kalit yarating (kopiyalab oling, qaytib ko'rsatilmaydi)</li>
+      <li><a href="/settings" style="color:#007AFF">Sozlamalar</a> sahifasiga qayting</li>
+      <li>"Anthropic API kalit" maydoniga yopishtiring va saqlash dan oldin <strong>"Tokenni sinash"</strong> tugmasini bosing</li>
+      <li>"AI yoqilgan" toggle ni yoqing → Saqlash</li>
+    </ol>
+  </div>
+  <a href="/settings" class="btn btn-pri" style="margin-top:14px"><i class="bi bi-gear"></i> Sozlamalarga o'tish</a>
 </div>
 {% else %}
 
-<div class="card" style="margin-bottom:14px;padding:0">
-  <div id="chat" style="height:60vh;overflow-y:auto;padding:18px">
-    {% for m in messages %}
-      <div class="msg msg-{{ m.role }}">
-        <div class="msg-r">{% if m.role == 'user' %}👤 Siz{% else %}🤖 Claude{% endif %}</div>
-        <div class="msg-b">{{ m.content }}</div>
-      </div>
-    {% else %}
-      <div style="text-align:center;color:#8E8E93;padding:40px">
-        <i class="bi bi-chat-dots" style="font-size:40px"></i>
-        <div style="margin-top:10px">Suhbatni boshlang. Claude server holatlari haqida bilim oladi.</div>
-      </div>
-    {% endfor %}
-  </div>
-
-  <form id="chatForm" style="border-top:1px solid rgba(60,60,67,.10);padding:14px;background:#FAFAFA;border-radius:0 0 12px 12px">
-    <textarea class="inp txt" name="prompt" id="promptInput" rows="2"
-              placeholder="So'rang: server holati, tekshiruvchi savol, recommendatsiya..."
-              style="margin-bottom:8px" required></textarea>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-        <input type="checkbox" name="include_status" id="incStatus" checked>
-        Hozirgi server holatini kontekstga qo'shish
-      </label>
-      <div style="display:flex;gap:6px">
-        <button type="button" class="btn btn-sec btn-sm" onclick="quickPrompt('Hozir nima holatda? Diqqat qiluvchi narsalar bormi?')">📊 Tekshir</button>
-        <button type="button" class="btn btn-sec btn-sm" onclick="quickPrompt('Disk va RAM ishlatilishi haqida xulosangiz?')">💾 Resurs</button>
-        <button type="submit" class="btn btn-pri btn-sm" id="sendBtn"><i class="bi bi-send"></i> Yuborish</button>
-      </div>
-    </div>
-  </form>
+<!-- Tabs -->
+<div style="display:flex;gap:0;background:rgba(60,60,67,0.10);border-radius:12px;padding:3px;margin-bottom:18px;width:fit-content">
+  <button class="ai-tab active" data-tab="chat" onclick="switchTab('chat', this)">
+    <i class="bi bi-chat-dots"></i> Chat
+  </button>
+  <button class="ai-tab" data-tab="logs" onclick="switchTab('logs', this)">
+    <i class="bi bi-file-text"></i> Log tahlili
+  </button>
+  <button class="ai-tab" data-tab="howto" onclick="switchTab('howto', this)">
+    <i class="bi bi-book"></i> Qo'llanma
+  </button>
 </div>
 
-<div style="font-size:12px;color:#8E8E93;text-align:center">
-  Model: <code>claude-opus-4-7</code> · Suhbat tarixi: oxirgi 20 xabar
+<!-- Chat tab -->
+<div class="tab-panel" id="tab-chat">
+  <div class="card" style="margin-bottom:14px;padding:0">
+    <div id="chat" style="height:55vh;overflow-y:auto;padding:18px">
+      {% for m in messages %}
+        <div class="msg msg-{{ m.role }}">
+          <div class="msg-r">{% if m.role == 'user' %}👤 Siz{% else %}🤖 Claude{% endif %}</div>
+          <div class="msg-b">{{ m.content }}</div>
+        </div>
+      {% else %}
+        <div style="text-align:center;color:#8E8E93;padding:40px">
+          <i class="bi bi-chat-dots" style="font-size:40px"></i>
+          <div style="margin-top:10px">Suhbatni boshlang yoki tezkor tugmalarni bosing.</div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <form id="chatForm" style="border-top:1px solid rgba(60,60,67,.10);padding:14px;background:#FAFAFA;border-radius:0 0 12px 12px">
+      <textarea class="inp txt" name="prompt" id="promptInput" rows="2"
+                placeholder="So'rang: server holati, recommendatsiya, log tahlili, yoki har qanday savol..."
+                style="margin-bottom:8px" required></textarea>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+          <input type="checkbox" name="include_status" id="incStatus" checked>
+          Hozirgi server holatini kontekstga qo'shish
+        </label>
+        <div style="display:flex;gap:6px">
+          <button type="button" class="btn btn-sec btn-sm" onclick="quickPrompt('Hozir nima holatda? Diqqat qiluvchi narsalar bormi?')">📊 Tekshir</button>
+          <button type="button" class="btn btn-sec btn-sm" onclick="quickPrompt('Disk va RAM ishlatilishi haqida xulosangiz?')">💾 Resurs</button>
+          <button type="button" class="btn btn-sec btn-sm" onclick="quickPrompt('Backup strategiya bo\'yicha tavsiya bering')">📦 Backup</button>
+          <button type="submit" class="btn btn-pri btn-sm" id="sendBtn"><i class="bi bi-send"></i> Yuborish</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Log analysis tab -->
+<div class="tab-panel" id="tab-logs" style="display:none">
+  <div class="card">
+    <div class="card-h"><h2><i class="bi bi-file-text"></i> Log tahlili</h2></div>
+    <div class="hlp" style="margin-bottom:10px">
+      Container yoki ilova logini paste qiling — Claude xatolar va sabablar haqida xulosa beradi.
+    </div>
+    <div class="form-grp">
+      <label class="lbl">Kontekst (ixtiyoriy)</label>
+      <input class="inp" id="logCtx" placeholder="Masalan: 'datagate restart qilingandan keyin'">
+    </div>
+    <div class="form-grp">
+      <label class="lbl">Loglar</label>
+      <textarea class="inp txt" id="logInput" rows="12" placeholder="docker logs natijasini, traceback'ni, yoki istalgan log fragmentni shu joyga yopishtiring..."></textarea>
+    </div>
+    <div style="display:flex;justify-content:flex-end">
+      <button class="btn btn-pri" onclick="analyzeLogs()" id="analyzeBtn">
+        <i class="bi bi-magic"></i> Tahlil qilish
+      </button>
+    </div>
+    <div id="logResult" style="display:none;margin-top:14px;padding:14px;background:#FAFAFA;border-radius:8px;white-space:pre-wrap;font-size:13.5px;line-height:1.5"></div>
+  </div>
+</div>
+
+<!-- How-to tab -->
+<div class="tab-panel" id="tab-howto" style="display:none">
+  <div class="card">
+    <div class="card-h"><h2><i class="bi bi-book"></i> Qo'llanma — AI ni qaerda ishlatish mumkin</h2></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px">
+
+      <div style="padding:14px;border:1px solid rgba(60,60,67,.10);border-radius:10px">
+        <div style="font-size:24px">🤖</div>
+        <h3 style="font-size:14px;margin:6px 0 4px">Bu sahifa — Chat</h3>
+        <p style="font-size:13px;color:#3A3A3C;margin:0">Server holati haqida savol bering. Checkbox bilan hozirgi statuslarni kontekstga qo'shing.</p>
+      </div>
+
+      <div style="padding:14px;border:1px solid rgba(60,60,67,.10);border-radius:10px">
+        <div style="font-size:24px">📊</div>
+        <h3 style="font-size:14px;margin:6px 0 4px">Dashboard — AI xulosa</h3>
+        <p style="font-size:13px;color:#3A3A3C;margin:0">Bir martagi xulosa: butun fleet holati 5 jumlada.</p>
+      </div>
+
+      <div style="padding:14px;border:1px solid rgba(60,60,67,.10);border-radius:10px">
+        <div style="font-size:24px">🖥</div>
+        <h3 style="font-size:14px;margin:6px 0 4px">Server detail — AI tahlil</h3>
+        <p style="font-size:13px;color:#3A3A3C;margin:0">Server sahifasidagi <strong>AI tahlil</strong> tugmasi: konkret server'ning holatini batafsil tahlil qiladi va tavsiyalar beradi.</p>
+      </div>
+
+      <div style="padding:14px;border:1px solid rgba(60,60,67,.10);border-radius:10px">
+        <div style="font-size:24px">💡</div>
+        <h3 style="font-size:14px;margin:6px 0 4px">Alert — AI fix</h3>
+        <p style="font-size:13px;color:#3A3A3C;margin:0">Server detail sahifasida har bir alert yonida <strong>AI fix</strong> tugmasi: muammo uchun aniq SSH/docker buyruqlarni taklif qiladi.</p>
+      </div>
+
+      <div style="padding:14px;border:1px solid rgba(60,60,67,.10);border-radius:10px">
+        <div style="font-size:24px">📝</div>
+        <h3 style="font-size:14px;margin:6px 0 4px">Log tahlili</h3>
+        <p style="font-size:13px;color:#3A3A3C;margin:0">Bu sahifaning ikkinchi tab'i. Log fragmentini paste qiling — xato sabablari va keyingi qadamlar.</p>
+      </div>
+
+      <div style="padding:14px;border:1px solid rgba(60,60,67,.10);border-radius:10px">
+        <div style="font-size:24px">📰</div>
+        <h3 style="font-size:14px;margin:6px 0 4px">Smart digest</h3>
+        <p style="font-size:13px;color:#3A3A3C;margin:0">Sozlamalar → Schedule → "AI digest" toggle. Kunlik 08:00 hisobotini Claude yozadi (templated emas).</p>
+      </div>
+
+    </div>
+
+    <hr style="border:none;border-top:1px solid rgba(60,60,67,.10);margin:18px 0">
+
+    <h3 style="font-size:13px;text-transform:uppercase;color:#8E8E93;letter-spacing:.5px;margin-bottom:8px">Xavfsizlik</h3>
+    <p style="font-size:13px;color:#3A3A3C;margin:0 0 6px">
+      • API kalit DB'da plain-text saqlanadi (Hub'ning <code>data/hub.db</code> fayli, faqat container ichida)
+    </p>
+    <p style="font-size:13px;color:#3A3A3C;margin:0 0 6px">
+      • Server <code>/status</code> JSON'i Anthropic'ga yuboriladi (faqat siz so'rasangiz)
+    </p>
+    <p style="font-size:13px;color:#3A3A3C;margin:0">
+      • Kalit oqib chiqsa — <a href="https://console.anthropic.com/settings/keys" target="_blank">console</a>'dan revoke qilib yangisi bilan almashtiring
+    </p>
+  </div>
 </div>
 
 <style>
+.ai-tab{padding:8px 16px;border:none;background:transparent;border-radius:9px;font-size:13.5px;font-weight:500;cursor:pointer;color:#3A3A3C;font-family:inherit;display:flex;align-items:center;gap:6px}
+.ai-tab.active{background:#fff;color:#007AFF;box-shadow:0 1px 3px rgba(0,0,0,.08);font-weight:600}
 .msg{margin-bottom:18px}
 .msg-r{font-size:12px;font-weight:700;color:#8E8E93;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
 .msg-b{padding:12px 16px;border-radius:14px;line-height:1.55;font-size:14px;white-space:pre-wrap}
@@ -71,7 +179,14 @@
 
 <script>
 const chat = document.getElementById('chat');
-chat.scrollTop = chat.scrollHeight;
+if (chat) chat.scrollTop = chat.scrollHeight;
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.ai-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+  document.getElementById('tab-' + name).style.display = 'block';
+}
 
 function appendMsg(role, content) {
   const wrap = document.createElement('div');
@@ -97,9 +212,8 @@ document.getElementById('chatForm').addEventListener('submit', async function(e)
 
   appendMsg('user', prompt);
   promptEl.value = '';
-  btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> O\'ylanmoqda...';
+  btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> ...';
 
-  // Placeholder
   const placeholderId = 'ph-' + Date.now();
   const ph = document.createElement('div');
   ph.id = placeholderId;
@@ -124,6 +238,30 @@ document.getElementById('chatForm').addEventListener('submit', async function(e)
     promptEl.focus();
   }
 });
+
+async function analyzeLogs() {
+  const logs = document.getElementById('logInput').value.trim();
+  if (!logs) { alert('Loglarni kiriting'); return; }
+  const ctx = document.getElementById('logCtx').value.trim();
+  const btn = document.getElementById('analyzeBtn');
+  const result = document.getElementById('logResult');
+  btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Tahlil qilinmoqda...';
+  result.style.display = 'block';
+  result.textContent = '⏳ Claude loglarni o\'qimoqda...';
+  try {
+    const fd = new FormData();
+    fd.append('logs', logs);
+    fd.append('context', ctx);
+    const r = await fetch('/ai/analyze-logs', {method:'POST', body:fd});
+    const j = await r.json();
+    result.textContent = j.reply || j.error || '?';
+  } catch (e) {
+    result.textContent = 'Xato: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-magic"></i> Tahlil qilish';
+  }
+}
 </script>
 
 {% endif %}

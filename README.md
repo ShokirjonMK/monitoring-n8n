@@ -12,38 +12,68 @@ Multi-server nazorat tizimi. Har bir serverdagi containerlar, endpointlar, ma'lu
 
 ## Asosiy xususiyatlar
 
-- ✅ **Doimiy monitoring** — har 60s status tekshiruv
+### Monitoring
+- ✅ **Doimiy nazorat** — har 60s status tekshiruv (sozlanadi)
 - ✅ **Smart alerting** — anti-flapping (2 marta tasdiqlanguncha tindiriladi)
 - ✅ **Recovery alerts** — muammo tugaganda xabar
-- ✅ **Per-server Telegram routing** — har server o'z bot/chat'ini belgilaydi
-- ✅ **Alert vs Report kanallari** — kritik xatolar va kunlik digestlar alohida kanalda
-- ✅ **Maintenance mode** — rejalashtirilgan ish vaqtida alertlar tindiriladi
-- ✅ **AI yordamchi** — Claude bilan chat (server status'ini kontekst sifatida)
-- ✅ **Dinamik server qo'shish** — UI orqali, restart kerak emas
-- ✅ **Backup automation** — kunlik dump → Telegram (≤50MB) yoki lokal
+- ✅ **Resurs threshold** — disk/RAM/load >threshold da alert (debounce bilan)
 - ✅ **SSL nazorat** — sertifikat tugashidan 14 kun oldin alert
+- ✅ **Backup automation** — kunlik dump → Telegram yoki lokal
+- ✅ **Status timeline** — har server uchun so'nggi 40 ta tick (yashil/sariq/qizil bar)
+
+### Telegram routing
+- ✅ **Per-server bot/chat** — har server o'z kanaliga
+- ✅ **Default kanal admin paneldan** — env'siz, UI orqali boshqarish
+- ✅ **Alert vs Report kanallari** — kritik va digestlar alohida
+- ✅ **"Kanallarni topish"** tugmasi — `getUpdates` orqali avtomat
+- ✅ **Test tugmasi** — saqlashdan oldin sinab ko'rish
+- ✅ **Maintenance mode** — rejalashtirilgan ish vaqtida alertlar tindiriladi
+
+### AI (Claude)
+- ✅ **Token validate** tugmasi — saqlashdan oldin tekshirish
+- ✅ **AI chat** — server status kontekstida
+- ✅ **AI xulosa** (Dashboard) — fleet uchun bir martagi tahlil
+- ✅ **AI tahlil** (Server detail) — bitta server uchun batafsil
+- ✅ **AI fix** (Alert yonida) — alert uchun aniq SSH/docker buyruqlar
+- ✅ **Log tahlili** — log paste qiling, xato sabablari
+- ✅ **Smart digest** — Claude tomonidan yozilgan kunlik hisobot
+
+### Boshqaruv
+- ✅ **Wizard bilan server qo'shish** — bir qator install skript
+- ✅ **Aloqa probe** — saqlashdan oldin agent javob berishini tekshirish
+- ✅ **Manual triggerlar** — Dashboard'dan "Hammasi" yoki har biriga alohida
+- ✅ **Schedule UI'dan** — interval/vaqt/toggle barchasi DB'da
 - ✅ **Webhook receiver** — tashqi servislar event yuborishi mumkin
-- ✅ **Acknowledgement** — alert ko'rilganini belgilash
+- ✅ **Alert acknowledgement** — ko'rilganini belgilash
+- ✅ **Recent activity** — har server uchun 24 soat tarixi
 
 ## Tezkor boshlash
 
+### Agent (har serverda) — 1 qator buyruq
+
 ```bash
-# 1. Har bir serverga monitor-agent o'rnatish
-cd monitor-agent
-cp config.example.yml config.yml
-# config.yml ni tahrirlang — kuzatiladigan endpointlar, bazalarni qo'shing
-openssl rand -hex 32 > .agent-secret
-docker compose up -d --build
-
-# 2. Markaziy serverga monitor-hub o'rnatish
-cd ../monitor-hub
-cp .env.example .env
-# .env ni tahrirlang: ADMIN_PASS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-docker compose up -d --build
-
-# 3. Hub UI'da serverni qo'shish
-# http://localhost:9991 → login → Serverlar → Yangi
+curl -fsSL https://raw.githubusercontent.com/ShokirjonMK/monitoring-n8n/main/install.sh | bash
 ```
+
+Skript Docker'ni tekshiradi, kodni yuklaydi, container ishga tushiradi va so'ngida **Hub'ga qo'shish uchun ma'lumotlarni** chop etadi (URL + Token).
+
+### Hub (markazda) — bir martalik
+
+```bash
+git clone https://github.com/ShokirjonMK/monitoring-n8n.git /opt/monitoring
+cd /opt/monitoring/monitor-hub
+cp .env.example .env
+nano .env                # ADMIN_PASS, SECRET_KEY (Telegram va boshqalarni admin paneldan kiriting)
+docker compose up -d --build
+```
+
+So'ngra `http://YOUR_HOST:9991` → login → Sozlamalar → Telegram bot tokenni va chat ID'larni kiriting (`Kanallarni topish` tugmasi yordam beradi).
+
+### Server qo'shish (UI'da)
+1. **Serverlar → Yangi server** → Wizard ko'rinadi
+2. Wizard buyruqni nusxalab yangi serverda ishga tushiring
+3. Skript chiqargan ma'lumotlarni formaga yopishtiring
+4. **"Aloqani sinash"** tugmasi bilan tekshiring → yashil bo'lsa Saqlash
 
 To'liq qo'llanma: [`docs/DEPLOY.md`](docs/DEPLOY.md)
 

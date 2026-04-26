@@ -3,37 +3,111 @@
 {% block n_srv %}active{% endblock %}
 
 {% block content %}
-<div style="max-width:680px">
+<div style="max-width:780px">
   <div style="margin-bottom:16px">
     <a href="/servers" style="font-size:13px;color:#8E8E93"><i class="bi bi-chevron-left"></i> Serverlar</a>
   </div>
 
+  {% if not server %}
+  <!-- ════════ Wizard for ADD ════════ -->
+  <div class="card" style="margin-bottom:18px;background:linear-gradient(135deg,rgba(0,122,255,.04),rgba(0,122,255,.01));border-left:3px solid #007AFF">
+    <div class="card-h">
+      <h2><i class="bi bi-magic"></i> Wizard — yangi server qo'shish</h2>
+    </div>
+
+    <ol style="padding-left:24px;margin:0">
+      <li style="margin-bottom:18px">
+        <strong>1. Yangi serverga SSH bilan kirib, quyidagi 1 qator buyruqni ishga tushiring:</strong>
+        <div style="position:relative;background:#1C1C1E;color:#E5E5EA;padding:14px 50px 14px 16px;border-radius:8px;margin-top:8px;font-family:'SF Mono',Menlo,monospace;font-size:12.5px;overflow-x:auto" id="installCmd">
+curl -fsSL https://raw.githubusercontent.com/ShokirjonMK/monitoring-n8n/main/install.sh | bash
+        </div>
+        <button type="button" class="btn btn-sec btn-sm" style="margin-top:6px"
+                onclick="navigator.clipboard.writeText(document.getElementById('installCmd').textContent.trim()); this.innerHTML='<i class=&quot;bi bi-check-lg&quot;></i> Nusxalandi'">
+          <i class="bi bi-clipboard"></i> Buyruqni nusxalash
+        </button>
+        <div class="hlp" style="margin-top:8px">
+          Skript Docker'ni tekshirib, kodni yuklab, container'ni ishga tushiradi va keyin
+          <strong>Token</strong> + <strong>URL</strong>'ni chop etadi — ularni quyiga yopishtiring.
+        </div>
+      </li>
+
+      <li style="margin-bottom:18px">
+        <strong>2. Skriptdan chiqqan ma'lumotlarni quyiga yozing:</strong>
+        <div class="hlp" style="margin-top:6px">
+          Skript so'ngida 3 qator chiqaradi: <code>Nomi</code>, <code>Agent URL</code>, <code>Token</code>.
+          Forma quyida ularni qabul qiladi.
+        </div>
+      </li>
+
+      <li>
+        <strong>3. Test va saqlash</strong>
+        <div class="hlp" style="margin-top:6px">
+          "Aloqani sinash" tugmasini bosing — agar yashil bo'lsa, saqlang. Hub avtomat tarzda nazoratga oladi.
+        </div>
+      </li>
+    </ol>
+
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;font-size:13px;color:#007AFF;font-weight:600">
+        ▸ Qo'lda o'rnatish (skriptsiz)
+      </summary>
+      <div style="margin-top:10px;padding:12px;background:#FAFAFA;border-radius:8px;font-size:13px">
+        <pre style="margin:0;font-size:12px"># 1. Yangi serverda
+git clone https://github.com/ShokirjonMK/monitoring-n8n /opt/m
+cd /opt/m/monitor-agent
+cp config.example.yml config.yml
+nano config.yml          # endpointlar, bazalarni kiriting
+openssl rand -hex 32 > .agent-secret
+docker compose up -d --build
+
+# 2. Tokenni ko'chiring:
+cat .agent-secret
+
+# 3. Public IP:
+curl -4 ifconfig.me</pre>
+      </div>
+    </details>
+  </div>
+  {% endif %}
+
   {% if error %}<div class="bdg bdg-dan" style="display:block;margin-bottom:14px;padding:10px 14px">{{ error }}</div>{% endif %}
 
   <form method="post" action="{{ '/servers/' ~ server.id ~ '/edit' if server else '/servers/new' }}" class="card">
+    <div class="card-h"><h2><i class="bi bi-server"></i> {% if server %}Tahrirlash{% else %}Asosiy ma'lumotlar{% endif %}</h2></div>
+
     <div class="form-grp">
       <label class="lbl">Nomi *</label>
-      <input class="inp" name="name" value="{{ server.name if server else (form.name if form else '') }}" required>
-      <div class="hlp">Yagona, qisqa nom (masalan: <code>main-uz</code>, <code>dev-server</code>)</div>
+      <input class="inp" name="name" value="{{ server.name if server else (form.name if form else '') }}"
+             placeholder="masalan: main-uz, dev-server, client-acme" required>
+      <div class="hlp">Yagona, qisqa identifikator. Telegram xabarlarida ko'rinadi.</div>
     </div>
 
     <div class="form-grp">
       <label class="lbl">Agent URL *</label>
-      <input class="inp" name="base_url"
-             value="{{ server.base_url if server else (form.base_url if form else 'http://172.17.0.1:9990') }}"
-             placeholder="http://IP:9990" required>
-      <div class="hlp">Monitor-agent manzili (port 9990 default).
-        <strong>Diqqat:</strong> agar n8n bilan bir hostda bo'lsa <code>http://172.17.0.1:9990</code> ishlatadi.
-        Boshqa hostda — public IP yoki domen.
+      <div style="display:flex;gap:8px">
+        <input class="inp" name="base_url" id="baseUrl"
+               value="{{ server.base_url if server else (form.base_url if form else 'http://172.17.0.1:9990') }}"
+               placeholder="http://IP:9990" required style="flex:1">
+        <button type="button" class="btn btn-sec btn-sm" onclick="probeAgent()" id="probeBtn">
+          <i class="bi bi-broadcast"></i> Aloqani sinash
+        </button>
       </div>
+      <div class="hlp">
+        💡 <strong>Lokal hub bo'lsa</strong> (bir host'da) — <code>http://172.17.0.1:9990</code><br>
+        🌐 <strong>Boshqa serverda</strong> — <code>http://PUBLIC_IP:9990</code>
+      </div>
+      <div id="probeResult" style="display:none;margin-top:8px;padding:8px 12px;border-radius:6px;font-size:13px"></div>
     </div>
 
     <div class="form-grp">
       <label class="lbl">Agent token *</label>
-      <input class="inp" type="text" name="agent_token"
+      <input class="inp" type="password" name="agent_token" id="agentToken"
              value="{{ server.agent_token if server else (form.agent_token if form else '') }}"
              style="font-family:monospace;font-size:12.5px" required>
-      <div class="hlp">Server'dagi <code>/opt/monitor-agent/.agent-secret</code> faylidagi qiymat.</div>
+      <div class="hlp">
+        Skript chiqarib bergan 64 belgilik token. Yoki yangi serverda:
+        <code>cat /opt/monitor-agent/.agent-secret</code>
+      </div>
     </div>
 
     <div class="form-grp">
@@ -55,40 +129,38 @@
     <hr style="border:none;border-top:1px solid rgba(60,60,67,.10);margin:20px 0">
 
     <h3 style="font-size:14px;margin:0 0 12px;color:#3A3A3C">
-      <i class="bi bi-bell"></i> Telegram alert kanali (faqat real muammolar)
+      <i class="bi bi-bell"></i> Telegram alert kanali (faqat real muammolar) — ixtiyoriy
     </h3>
     <div class="hlp" style="margin-bottom:10px">
-      Bo'sh qoldirilsa — global default ishlatadi. Guruh/kanal ID'lari <code>-100...</code> bilan boshlanadi.
+      Bo'sh qoldirilsa <strong>Sozlamalar</strong> sahifasidagi global default ishlatadi.
+      Faqat shu server uchun boshqa kanal kerak bo'lsa to'ldiring.
     </div>
     <div style="display:grid;grid-template-columns:1fr 220px;gap:10px;margin-bottom:14px">
       <div>
         <label class="lbl">Alert bot token</label>
         <input class="inp" name="alert_bot_token" value="{{ server.alert_bot_token or '' if server else '' }}"
-               placeholder="123456:AAExxxxx (default uchun bo'sh qoldiring)" style="font-family:monospace;font-size:12.5px">
+               placeholder="default uchun bo'sh" style="font-family:monospace;font-size:12.5px">
       </div>
       <div>
         <label class="lbl">Alert chat ID</label>
         <input class="inp" name="alert_chat_id" value="{{ server.alert_chat_id or '' if server else '' }}"
-               placeholder="813225336 yoki -100...">
+               placeholder="-100... yoki 813...">
       </div>
     </div>
 
     <h3 style="font-size:14px;margin:0 0 12px;color:#3A3A3C">
-      <i class="bi bi-megaphone"></i> Telegram report kanali (digest, backup natijasi)
+      <i class="bi bi-megaphone"></i> Telegram report kanali — ixtiyoriy
     </h3>
-    <div class="hlp" style="margin-bottom:10px">
-      Reportlar va alert'lar alohida bo'lishi tavsiya etiladi (digest spam yo'q, alert'lar zudlik bilan ko'rinadi).
-    </div>
     <div style="display:grid;grid-template-columns:1fr 220px;gap:10px;margin-bottom:14px">
       <div>
         <label class="lbl">Report bot token</label>
         <input class="inp" name="report_bot_token" value="{{ server.report_bot_token or '' if server else '' }}"
-               placeholder="default uchun bo'sh qoldiring" style="font-family:monospace;font-size:12.5px">
+               placeholder="default uchun bo'sh" style="font-family:monospace;font-size:12.5px">
       </div>
       <div>
         <label class="lbl">Report chat ID</label>
         <input class="inp" name="report_chat_id" value="{{ server.report_chat_id or '' if server else '' }}"
-               placeholder="813225336 yoki -100...">
+               placeholder="default uchun bo'sh">
       </div>
     </div>
 
@@ -133,4 +205,44 @@ async function testChannels() {
 }
 </script>
 {% endif %}
+
+<script>
+async function probeAgent() {
+  const url = document.getElementById('baseUrl').value.trim().replace(/\/$/, '');
+  const token = document.getElementById('agentToken').value.trim();
+  const result = document.getElementById('probeResult');
+  const btn = document.getElementById('probeBtn');
+  btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> ...';
+  result.style.display = 'block';
+  result.style.background = 'rgba(60,60,67,.08)';
+  result.style.color = '#3A3A3C';
+  result.textContent = '⏳ Aloqa tekshirilmoqda...';
+
+  try {
+    const r = await fetch('/api/probe-agent', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({base_url: url, token: token})
+    });
+    const j = await r.json();
+    if (j.ok) {
+      result.style.background = 'rgba(52,199,89,.12)';
+      result.style.color = '#248A3D';
+      result.innerHTML = `✓ Agent ishlamoqda<br>
+        <small>Server: <code>${j.health?.server || '?'}</code> · ${j.containers || 0} container · ${j.databases || 0} db · ${j.endpoints || 0} endpoint</small>`;
+    } else {
+      result.style.background = 'rgba(255,59,48,.12)';
+      result.style.color = '#d93028';
+      result.innerHTML = `✗ Aloqa o'rnatib bo'lmadi<br><small>${j.error || '?'}</small>`;
+    }
+  } catch (e) {
+    result.style.background = 'rgba(255,59,48,.12)';
+    result.style.color = '#d93028';
+    result.textContent = '✗ Xato: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-broadcast"></i> Aloqani sinash';
+  }
+}
+</script>
 {% endblock %}

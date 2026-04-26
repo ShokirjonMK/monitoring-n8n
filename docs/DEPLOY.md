@@ -19,12 +19,24 @@ git clone https://github.com/ShokirjonMK/monitoring-n8n.git /opt/monitoring
 cd /opt/monitoring
 ```
 
-### 2-bosqich: Har serverda Agent
+### 2-bosqich: Har serverda Agent (eng tezkor — 1 qator)
 
 ```bash
-# Asosiy server bo'lsa allaqachon klonlangan, aks holda:
-git clone https://github.com/ShokirjonMK/monitoring-n8n.git /opt/monitoring
+curl -fsSL https://raw.githubusercontent.com/ShokirjonMK/monitoring-n8n/main/install.sh | bash
+```
 
+Skript:
+1. Docker'ni tekshiradi
+2. `/opt/monitor-agent` ga klonlaydi
+3. `config.yml` ni minimal default bilan yaratadi
+4. `.agent-secret` tokenini generatsiya qiladi
+5. Container'ni ishga tushuradi
+6. So'ngida **Hub'ga qo'shish ma'lumotlarini** chop etadi — nusxa olib formaga yopishtiring
+
+### Qo'lda o'rnatish (skriptsiz)
+
+```bash
+git clone https://github.com/ShokirjonMK/monitoring-n8n.git /opt/monitoring
 cd /opt/monitoring/monitor-agent
 cp config.example.yml config.yml
 nano config.yml   # qarang: docs/CONFIGURATION.md
@@ -36,7 +48,7 @@ docker compose up -d --build
 curl http://localhost:9990/health
 # {"status":"ok",...}
 
-# Agent tokenni ko'rish (Hub'ga qo'shish uchun)
+# Token (Hub'ga qo'shish uchun)
 cat .agent-secret
 ```
 

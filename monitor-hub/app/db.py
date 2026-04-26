@@ -139,6 +139,9 @@ class HubSettings(SQLModel, table=True):
     enable_backup_daily: bool = True
     enable_daily_digest: bool = True
 
+    # AI-generated daily digest (replaces templated when AI is enabled)
+    use_ai_digest: bool = False
+
     updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
 
@@ -171,6 +174,9 @@ def init_db():
             ("fired_at", "DATETIME"),
             ("delivered_chat_id", "VARCHAR"),
             ("delivered_via_bot", "VARCHAR"),
+        ],
+        "hubsettings": [
+            ("use_ai_digest", "BOOLEAN DEFAULT 0"),
         ],
     }
     with engine.connect() as conn:

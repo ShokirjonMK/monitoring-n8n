@@ -152,6 +152,38 @@ async def api_dashboard(_=Depends(require_login)):
     return await AGENT.gather_all_status(servers)
 
 
+@app.post("/api/probe-agent")
+async def api_probe_agent(request: Request, _=Depends(require_login)):
+    """Test connectivity to a candidate agent before saving the server."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
+    url = (body.get("base_url") or "").rstrip("/")
+    token = body.get("token") or ""
+    if not url:
+        return {"ok": False, "error": "URL kiritilmagan"}
+
+    h = await AGENT.health(url)
+    if "_error" in (h or {}):
+        return {"ok": False, "error": f"/health: {h.get('_error')}"}
+
+    if not token:
+        return {"ok": True, "health": h, "warning": "Token sinalmadi (bo'sh)"}
+
+    st = await AGENT.status(url, token)
+    if "_error" in (st or {}):
+        return {"ok": False, "error": f"/status: {st.get('_error')}", "health": h}
+
+    return {
+        "ok": True,
+        "health": h,
+        "containers": len(st.get("containers", [])),
+        "databases": len(st.get("databases", [])),
+        "endpoints": len(st.get("endpoints", [])),
+    }
+
+
 # ─── Servers CRUD ─────────────────────────────────────────────────────────────
 
 @app.get("/servers", response_class=HTMLResponse)
@@ -218,12 +250,30 @@ async def server_detail(sid: int, request: Request, _=Depends(require_login)):
         srv = s.exec(select(DB.Server).where(DB.Server.id == sid)).first()
         if not srv:
             return RedirectResponse("/servers", 302)
+        # Recent activity from DB (last 24h)
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+        recent_alerts = s.exec(
+            select(DB.AlertHistory)
+            .where(DB.AlertHistory.server_id == sid)
+            .where(DB.AlertHistory.opened_at > cutoff)
+            .order_by(DB.AlertHistory.opened_at.desc())
+            .limit(20)
+        ).all()
+        recent_runs = s.exec(
+            select(DB.CheckRun)
+            .where(DB.CheckRun.server_id == sid)
+            .order_by(DB.CheckRun.ran_at.desc())
+            .limit(40)
+        ).all()
+        ai = s.exec(select(DB.AISettings).where(DB.AISettings.id == 1)).first()
     # Live status
     st = await AGENT.status(srv.base_url, srv.agent_token)
     cfg = await AGENT.get_config(srv.base_url, srv.agent_token)
     backups = await AGENT.backup_list(srv.base_url, srv.agent_token)
     return templates.TemplateResponse("server_detail.html", {
         "request": request, "server": srv, "status": st, "config": cfg, "backups": backups,
+        "recent_alerts": recent_alerts, "recent_runs": recent_runs,
+        "ai_enabled": ai and ai.enabled and bool(ai.api_key),
     })
 
 
@@ -568,6 +618,72 @@ async def ai_summarize(_=Depends(require_login)):
     return {"reply": text}
 
 
+@app.post("/ai/validate-key")
+def ai_validate_key(api_key: str = Form(""), model: str = Form("claude-haiku-4-5-20251001"),
+                    _=Depends(require_login)):
+    """Test an Anthropic key (cheap call). User must paste the key here — never logged."""
+    with Session(DB.engine) as s:
+        ai = s.exec(select(DB.AISettings).where(DB.AISettings.id == 1)).first()
+    key = api_key.strip() or (ai.api_key if ai else "")
+    if not key:
+        return {"ok": False, "error": "Avval API kalitni kiriting (yoki Sozlamalarda saqlang)"}
+    return AI.validate_key(key, model)
+
+
+@app.post("/ai/explain-server/{sid}")
+async def ai_explain_server(sid: int, _=Depends(require_login)):
+    """AI tahlili — bitta server holatini batafsil tushuntirib beradi."""
+    with Session(DB.engine) as s:
+        ai = s.exec(select(DB.AISettings).where(DB.AISettings.id == 1)).first()
+        if not ai or not ai.enabled or not ai.api_key:
+            return JSONResponse({"error": "AI sozlanmagan. /settings ga o'ting."}, status_code=400)
+        srv = s.exec(select(DB.Server).where(DB.Server.id == sid)).first()
+        if not srv:
+            return JSONResponse({"error": "Server topilmadi"}, status_code=404)
+    st = await AGENT.status(srv.base_url, srv.agent_token)
+    text = AI.explain_server(ai.api_key, ai.model, ai.system_prompt, {"name": srv.name, "status": st})
+    return {"reply": text}
+
+
+@app.post("/ai/suggest-fix/{aid}")
+async def ai_suggest_fix(aid: int, _=Depends(require_login)):
+    """AI alert uchun aniq tuzatish ketma-ketligini taklif qiladi."""
+    with Session(DB.engine) as s:
+        ai = s.exec(select(DB.AISettings).where(DB.AISettings.id == 1)).first()
+        if not ai or not ai.enabled or not ai.api_key:
+            return JSONResponse({"error": "AI sozlanmagan"}, status_code=400)
+        alert = s.exec(select(DB.AlertHistory).where(DB.AlertHistory.id == aid)).first()
+        if not alert:
+            return JSONResponse({"error": "Alert topilmadi"}, status_code=404)
+        srv = s.exec(select(DB.Server).where(DB.Server.id == alert.server_id)).first()
+
+    server_status = None
+    if srv:
+        server_status = await AGENT.status(srv.base_url, srv.agent_token)
+
+    alert_dict = {
+        "server": srv.name if srv else None,
+        "type": alert.monitor_type, "key": alert.key,
+        "level": alert.level, "message": alert.message,
+        "consecutive_count": alert.consecutive_count,
+        "opened_at": alert.opened_at.isoformat() if alert.opened_at else None,
+    }
+    text = AI.suggest_fix(ai.api_key, ai.model, ai.system_prompt, alert_dict, server_status)
+    return {"reply": text}
+
+
+@app.post("/ai/analyze-logs")
+async def ai_analyze_logs(logs: str = Form(...), context: str = Form(""),
+                          _=Depends(require_login)):
+    """Log fragmentini paste qilib, tahlil olish."""
+    with Session(DB.engine) as s:
+        ai = s.exec(select(DB.AISettings).where(DB.AISettings.id == 1)).first()
+        if not ai or not ai.enabled or not ai.api_key:
+            return JSONResponse({"error": "AI sozlanmagan"}, status_code=400)
+    text = AI.analyze_logs(ai.api_key, ai.model, ai.system_prompt, logs, context)
+    return {"reply": text}
+
+
 @app.post("/ai/clear")
 def ai_clear(_=Depends(require_login)):
     with Session(DB.engine) as s:
@@ -654,6 +770,7 @@ async def settings_schedule_save(
     enable_ssl_daily: str = Form("off"),
     enable_backup_daily: str = Form("off"),
     enable_daily_digest: str = Form("off"),
+    use_ai_digest: str = Form("off"),
     _=Depends(require_login),
 ):
     with Session(DB.engine) as s:
@@ -672,6 +789,7 @@ async def settings_schedule_save(
         hub.enable_ssl_daily = (enable_ssl_daily == "on")
         hub.enable_backup_daily = (enable_backup_daily == "on")
         hub.enable_daily_digest = (enable_daily_digest == "on")
+        hub.use_ai_digest = (use_ai_digest == "on")
         hub.updated_at = datetime.datetime.utcnow()
         s.add(hub); s.commit()
 

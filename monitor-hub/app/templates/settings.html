@@ -143,7 +143,7 @@
       <input class="inp" type="number" name="ssl_minute" value="{{ hub.ssl_minute }}" min="0" max="59">
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr auto 70px 60px;gap:10px;align-items:center;margin-bottom:14px">
+    <div style="display:grid;grid-template-columns:1fr auto 70px 60px;gap:10px;align-items:center;margin-bottom:8px">
       <div><strong>Daily digest</strong> — server holatlari hisoboti</div>
       <label class="tgl">
         <input type="checkbox" name="enable_daily_digest" {% if hub.enable_daily_digest %}checked{% endif %}>
@@ -151,6 +151,17 @@
       </label>
       <input class="inp" type="number" name="digest_hour" value="{{ hub.digest_hour }}" min="0" max="23">
       <input class="inp" type="number" name="digest_minute" value="{{ hub.digest_minute }}" min="0" max="59">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;margin-bottom:14px;padding-left:14px">
+      <div style="font-size:13px;color:#3A3A3C">
+        <strong>🤖 AI tomonidan yozilgan digest</strong>
+        <div class="hlp">Yoqilsa Claude kunlik hisobotni yozadi (templated o'rniga). AI sozlanmagan bo'lsa templated.</div>
+      </div>
+      <label class="tgl">
+        <input type="checkbox" name="use_ai_digest" {% if hub.use_ai_digest %}checked{% endif %}>
+        <span class="tgl-s"></span>
+      </label>
     </div>
 
     <div style="display:flex;justify-content:flex-end;margin-top:8px">
@@ -162,13 +173,30 @@
   <form method="post" action="/settings/ai" class="card" style="margin-bottom:18px">
     <div class="card-h"><h2><i class="bi bi-stars"></i> AI (Claude)</h2></div>
 
+    <div class="bdg bdg-inf" style="display:block;padding:10px 14px;margin-bottom:14px;font-size:12.5px;line-height:1.5">
+      <strong>📖 Qisqa qo'llanma:</strong>
+      <ol style="margin:6px 0 0;padding-left:20px">
+        <li><a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:#007AFF">console.anthropic.com</a> — Anthropic akkauntda API Key yarating</li>
+        <li>Quyiga yopishtiring va <strong>"Tokenni sinash"</strong> tugmasini bosing — kalit ishlayotganini bilasiz</li>
+        <li>Modelni tanlang (Haiku — tez/arzon, Opus — eng kuchli)</li>
+        <li>"AI yoqilgan" toggle ni yoqing → Saqlash</li>
+        <li>Endi <a href="/ai" style="color:#007AFF">AI Yordamchi</a> sahifasida ishlatasiz; Server detail sahifasida "AI tahlil" tugmasi paydo bo'ladi</li>
+      </ol>
+    </div>
+
     <div class="form-grp">
       <label class="lbl">Anthropic API kalit</label>
-      <input class="inp" name="api_key" type="password"
-             placeholder="{% if ai.api_key %}{{ ai.api_key[:8] }}*** (mavjud — bo'sh qoldirilsa saqlanadi){% else %}sk-ant-...{% endif %}">
-      <div class="hlp">
-        <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>
+      <div style="display:flex;gap:8px">
+        <input class="inp" name="api_key" id="aiKey" type="password" style="flex:1"
+               placeholder="{% if ai.api_key %}{{ ai.api_key[:8] }}*** (mavjud — bo'sh qoldirilsa saqlanadi){% else %}sk-ant-...{% endif %}">
+        <button type="button" class="btn btn-sec btn-sm" onclick="validateAiKey()" id="validateBtn">
+          <i class="bi bi-check2-circle"></i> Tokenni sinash
+        </button>
       </div>
+      <div class="hlp">
+        Bo'sh qoldirilsa mavjud kalit saqlanadi. <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com →  Settings → API Keys</a>
+      </div>
+      <div id="validateResult" style="display:none;margin-top:8px;padding:8px 12px;border-radius:6px;font-size:13px"></div>
     </div>
 
     <div class="form-grp">
@@ -250,6 +278,37 @@ async function testDefaultChannels() {
   let msg = `Alert kanali (${j.alert.channel}, chat ${j.alert.chat_id}): ${j.alert.ok ? '✓' : '✗ ' + (j.alert.error || '')}\n`;
   msg += `Report kanali (${j.report.channel}, chat ${j.report.chat_id}): ${j.report.ok ? '✓' : '✗ ' + (j.report.error || '')}`;
   alert(msg);
+}
+
+async function validateAiKey() {
+  const key = document.getElementById('aiKey').value;
+  const model = document.querySelector('select[name="model"]')?.value || 'claude-haiku-4-5-20251001';
+  const btn = document.getElementById('validateBtn');
+  const result = document.getElementById('validateResult');
+  btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> ...';
+  result.style.display = 'block';
+  result.style.background = 'rgba(60,60,67,.08)'; result.style.color = '#3A3A3C';
+  result.textContent = '⏳ Anthropic ga kichik test so\'rovi yuborilmoqda...';
+  try {
+    const fd = new FormData();
+    fd.append('api_key', key);
+    fd.append('model', model);
+    const r = await fetch('/ai/validate-key', {method: 'POST', body: fd});
+    const j = await r.json();
+    if (j.ok) {
+      result.style.background = 'rgba(52,199,89,.12)'; result.style.color = '#248A3D';
+      result.innerHTML = `✓ Token to'g'ri ishlamoqda<br><small>Model: <code>${j.model}</code> · Javob: "${j.reply}"</small>`;
+    } else {
+      result.style.background = 'rgba(255,59,48,.12)'; result.style.color = '#d93028';
+      result.innerHTML = `✗ ${j.error || 'Xato'}`;
+    }
+  } catch (e) {
+    result.style.background = 'rgba(255,59,48,.12)'; result.style.color = '#d93028';
+    result.textContent = 'Xato: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check2-circle"></i> Tokenni sinash';
+  }
 }
 </script>
 {% endblock %}
