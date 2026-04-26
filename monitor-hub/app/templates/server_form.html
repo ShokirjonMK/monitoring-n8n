@@ -8,6 +8,25 @@
     <a href="/servers" style="font-size:13px;color:#8E8E93"><i class="bi bi-chevron-left"></i> Serverlar</a>
   </div>
 
+  {% if not server and prefill and (prefill.name or prefill.url or prefill.token) %}
+  <div class="card" style="margin-bottom:14px;background:rgba(255,149,0,.06);border-left:3px solid #FF9500">
+    <div style="font-size:13.5px;line-height:1.5">
+      <strong>⚠️ Tezkor qayd qilish ishlamadi</strong> (firewall yopiq bo'lishi mumkin).
+      Quyidagi forma <strong>install skriptidan</strong> avtomat to'ldirildi —
+      faqat "<b>Saqlash</b>" tugmasini bosing yoki avval "Aloqani sinash"ni bosing.
+      <details style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:12px;color:#3A3A3C">
+          ▸ Agar test ishlamasa — yangi serverda firewall ochish:
+        </summary>
+        <pre style="margin-top:6px;font-size:12px">sudo ufw allow 9990/tcp
+# yoki:
+sudo iptables -A INPUT -p tcp --dport 9990 -j ACCEPT
+# yoki hosting panel firewall'idan</pre>
+      </details>
+    </div>
+  </div>
+  {% endif %}
+
   {% if not server %}
   <!-- ════════ Tezkor (auto-register) flow ════════ -->
   <div class="card" style="margin-bottom:18px;background:linear-gradient(135deg,rgba(52,199,89,.06),rgba(52,199,89,.01));border-left:3px solid #34C759">
@@ -72,7 +91,7 @@
 
     <div class="form-grp">
       <label class="lbl">Nomi *</label>
-      <input class="inp" name="name" value="{{ server.name if server else (form.name if form else '') }}"
+      <input class="inp" name="name" value="{{ server.name if server else (prefill.name if prefill else (form.name if form else '')) }}"
              placeholder="masalan: main-uz, dev-server, client-acme" required>
       <div class="hlp">Yagona, qisqa identifikator. Telegram xabarlarida ko'rinadi.</div>
     </div>
@@ -81,7 +100,7 @@
       <label class="lbl">Agent URL *</label>
       <div style="display:flex;gap:8px">
         <input class="inp" name="base_url" id="baseUrl"
-               value="{{ server.base_url if server else (form.base_url if form else 'http://172.17.0.1:9990') }}"
+               value="{{ server.base_url if server else (prefill.url if prefill else (form.base_url if form else 'http://172.17.0.1:9990')) }}"
                placeholder="http://IP:9990" required style="flex:1">
         <button type="button" class="btn btn-sec btn-sm" onclick="probeAgent()" id="probeBtn">
           <i class="bi bi-broadcast"></i> Aloqani sinash
@@ -97,7 +116,7 @@
     <div class="form-grp">
       <label class="lbl">Agent token *</label>
       <input class="inp" type="password" name="agent_token" id="agentToken"
-             value="{{ server.agent_token if server else (form.agent_token if form else '') }}"
+             value="{{ server.agent_token if server else (prefill.token if prefill else (form.agent_token if form else '')) }}"
              style="font-family:monospace;font-size:12.5px" required>
       <div class="hlp">
         Skript chiqarib bergan 64 belgilik token. Yoki yangi serverda:

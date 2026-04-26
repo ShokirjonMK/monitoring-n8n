@@ -89,6 +89,12 @@ def _servers_dict(session: Session) -> list[dict]:
     return [s.model_dump() for s in session.exec(select(DB.Server)).all()]
 
 
+def final_name_safe(name: str) -> str:
+    """URL-safe encode for query param."""
+    import urllib.parse
+    return urllib.parse.quote(name or "")
+
+
 # ─── Dashboard ────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -261,13 +267,26 @@ async def register_server(token: str, request: Request):
         # Verify the agent is reachable before saving
         h = await AGENT.health(base_url)
         if "_error" in (h or {}):
+            err = (h or {}).get('_error', '?')
+            hint = ""
+            if "timed out" in err.lower() or "timeout" in err.lower() or "connect" in err.lower():
+                hint = (
+                    f" — Hub ({request.client.host}) {public_ip}:{port} ga ulana olmadi. "
+                    f"Ehtimoliy sababi: serverda firewall port {port}'ni blok qilmoqda. "
+                    f"Yangi serverda bajaring: 'sudo ufw allow {port}/tcp' yoki "
+                    f"hosting panelidan {port} portni oching."
+                )
             return JSONResponse({"ok": False,
-                "error": f"Hub agent'ga ulanib bo'lmadi: {(h or {}).get('_error', '?')[:200]}"
+                "error": f"Agent javob bermadi: {err[:150]}{hint}",
+                "manual_url": (
+                    f"/servers/new?name={final_name_safe(it.suggested_name or name)}"
+                    f"&url={base_url}&token={agent_token}"
+                ),
             }, status_code=502)
         st = await AGENT.status(base_url, agent_token)
         if "_error" in (st or {}):
             return JSONResponse({"ok": False,
-                "error": f"Token noto'g'ri yoki status xato: {(st or {}).get('_error', '?')[:200]}"
+                "error": f"Token noto'g'ri yoki /status xato: {(st or {}).get('_error', '?')[:200]}"
             }, status_code=502)
 
         # Resolve unique name conflict
@@ -364,9 +383,14 @@ async def servers_list(request: Request, _=Depends(require_login)):
 
 
 @app.get("/servers/new", response_class=HTMLResponse)
-def server_new_form(request: Request, _=Depends(require_login)):
+def server_new_form(request: Request,
+                    name: str = "", url: str = "", token: str = "",
+                    _=Depends(require_login)):
+    """URL params allow prefill: /servers/new?name=X&url=Y&token=Z
+    Used as a fallback link when /register/<token> fails (firewall blocks Hub)."""
     return templates.TemplateResponse("server_form.html", {
         "request": request, "server": None, "error": None,
+        "prefill": {"name": name, "url": url, "token": token},
     })
 
 

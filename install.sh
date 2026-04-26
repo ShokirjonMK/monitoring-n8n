@@ -160,9 +160,30 @@ if [ -n "$HUB_URL" ] && [ -n "$INSTALL_TOKEN" ]; then
         "${HUB_URL}/register/${INSTALL_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "$REGISTER_PAYLOAD" 2>&1) || {
-        err "Hub'ga qayd qilib bo'lmadi: ${REG_RESP}"
-        warn "Quyidagi ma'lumotlar bilan qo'lda qayd qiling:"
+
+        # Build URL-encoded prefill link
+        ENC_NAME=$(printf '%s' "$HOSTNAME_GUESS" | sed 's/ /%20/g')
+        ENC_URL=$(printf 'http://%s:%s' "$PUBLIC_IP" "$PORT" | sed 's|:|%3A|g; s|/|%2F|g')
+        ENC_TOKEN="$AGENT_TOKEN"
+        FORM_URL="${HUB_URL}/servers/new?name=${ENC_NAME}&url=${ENC_URL}&token=${ENC_TOKEN}"
+
+        err "Hub agent'ga ulana olmadi (server bilan tarmoqda muammo)."
         echo
+        echo "  $(c_yellow "Sabab")  Hub (${HUB_URL%:*}) shu serverdagi ${PORT} portga kira olmadi."
+        echo "          Eng ehtimoliy: firewall port ${PORT}'ni blok qilmoqda."
+        echo
+        echo "  $(c_bold "TUZATISH (1 daqiqa):")"
+        echo "    1. Yangi serverda firewall ochish:"
+        echo "       $(c_blue "sudo ufw allow ${PORT}/tcp")"
+        echo "       (yoki) $(c_blue "sudo iptables -A INPUT -p tcp --dport ${PORT} -j ACCEPT")"
+        echo "       (yoki) hosting panel firewall'idan ${PORT} ni oching"
+        echo
+        echo "    2. Hub UI'da bu havolaga kiring (forma avtomat to'ladi):"
+        echo "       $(c_green "${FORM_URL}")"
+        echo
+        echo "    3. Avval $(c_bold "Aloqani sinash") ni bosing → yashil bo'lsa $(c_bold "Saqlash")"
+        echo
+        echo "  $(c_bold "ALTERNATIVA — qo'lda yozish:")"
         echo "    Nomi:  $HOSTNAME_GUESS"
         echo "    URL:   http://${PUBLIC_IP}:${PORT}"
         echo "    Token: $AGENT_TOKEN"
