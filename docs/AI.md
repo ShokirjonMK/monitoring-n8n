@@ -1,137 +1,142 @@
-# AI (Claude) integratsiyasi
+# AI integratsiyasi (multi-provider)
 
-Hub Anthropic Claude bilan integrlashgan. AI quyidagi joylarda yordam beradi:
+Hub har qanday AI provayderini qo'llab-quvvatlaydi. **BEPUL** variantlar ham bor:
 
-| Joy | Vazifa |
-|-----|--------|
-| **Sozlamalar** sahifasi | Tokenni saqlashdan oldin sinash |
-| **AI Yordamchi** sahifasi (Chat) | Erkin suhbat, server konteksti bilan |
-| **AI Yordamchi** sahifasi (Log tahlili) | Log paste → xato sabablari |
-| **Dashboard** "AI xulosa" tugmasi | Butun fleet bo'yicha bir martagi xulosa |
-| **Server detail** "AI tahlil" tugmasi | Bitta serverni batafsil tahlil + tavsiyalar |
-| **Alert yonida** "AI fix" tugmasi | Alert uchun aniq SSH/docker buyruqlari |
-| **Sozlamalar → Schedule** "AI digest" toggle | Kunlik 08:00 hisobotni AI yozadi |
+| Provayder | Bepul limit | Sifat | Tezlik | Tavsiya |
+|---|---|---|---|---|
+| **Google Gemini** | 1500 req/kun, 15 RPM | ⭐⭐⭐⭐⭐ | tez | **#1 — eng yaxshi bepul** |
+| **Groq** | 14400 token/min, 30 RPM | ⭐⭐⭐⭐ | ⚡ eng tez | tez ishlash uchun |
+| **Cerebras** | 30 RPM | ⭐⭐⭐⭐ | ⚡⚡ super tez | minimum kechikish |
+| **OpenRouter** | `:free` modellari | ⭐⭐⭐ | o'rta | turli modellarni sinash |
+| **Anthropic Claude** | yo'q | ⭐⭐⭐⭐⭐ | tez | sifat zarur bo'lsa |
+| **OpenAI** | yo'q | ⭐⭐⭐⭐⭐ | tez | GPT-4 zarur bo'lsa |
+| **DeepSeek** | juda arzon | ⭐⭐⭐⭐ | tez | reasoning'i kuchli |
+| **Custom** | — | — | — | Ollama, LM Studio, va h.k. |
 
-## Token o'rnatish (1 daqiqa)
+## Tezkor boshlash — Gemini bilan (BEPUL, tavsiyam)
 
-1. **API kalit yaratish:**
-   - [console.anthropic.com → Settings → API Keys](https://console.anthropic.com/settings/keys)
-   - "Create Key" tugmasi
-   - Nom bering (masalan: `monitor-hub`)
-   - Kalitni nusxalang (qaytib ko'rsatilmaydi)
+### 1-bosqich: API kalit yaratish
 
-2. **Hub Sozlamalariga kiring:**
-   - <http://YOUR_HUB:9991/settings>
-   - "Anthropic API kalit" maydoniga yopishtiring
+1. <https://aistudio.google.com/apikey> ga kiring (Google akkaunt kerak)
+2. **"Create API key"** tugmasini bosing
+3. Kalitni nusxalang (`AIzaSy...` bilan boshlanadi)
 
-3. **Tokenni sinash:**
-   - "Tokenni sinash" tugmasi → Anthropic'ga kichik test so'rovi yuboriladi
-   - Yashil bo'lsa — kalit ishlaydi
-   - Qizil bo'lsa — xato sababi ko'rsatiladi (auth, model topilmadi, billing, va h.k.)
+### 2-bosqich: Hub Sozlamalariga kiring
 
-4. **Modelni tanlang:**
-   - **Haiku 4.5** — eng tez/arzon (~$0.30/M input tokens)
-   - **Sonnet 4.6** — balanced (~$3/M input tokens)
-   - **Opus 4.7** — eng kuchli (~$15/M input tokens, server tahlili uchun ortiqcha bo'lishi mumkin)
-   - Tavsiya: kundalik foydalanish uchun **Haiku**, batafsil tahlil uchun **Sonnet/Opus**
+1. <http://YOUR_HUB:9991/settings>
+2. AI bo'limiga o'ting
+3. **Provayder:** `Google Gemini  (BEPUL — 1500 req/kun)` — default
+4. **API kalit:** kalitni yopishtiring
+5. **Model:** `Gemini 1.5 Flash (BEPUL, tez)` — default
+6. **"Tokenni sinash"** tugmasi → ✓
+7. **AI yoqilgan** toggle → Saqlash
 
-5. **AI yoqing:**
-   - "AI yoqilgan" toggle → Saqlash
+Tamom! Endi AI har joyda ishlaydi.
 
-## Foydalanish stsenariylari
+---
 
-### 1) Server haqida tezkor xulosa
-Dashboard sahifasida → "AI xulosa" tugmasi.
-Hammasiga umumiy 5-jumla xulosa, anomaliyalar belgilanadi.
+## Boshqa BEPUL provayderlar
 
-### 2) Bitta serverni batafsil tahlil
-Serverlar → server tanlang → **AI tahlil** tugmasi.
-Claude:
-- Umumiy baho (yashil/sariq/qizil)
-- Muammoli komponentlar va sabablari
-- Tuzatish uchun aniq buyruqlar
-- Keyingi 24 soatda nimani kuzatish kerak
+### Groq — eng tez Llama
+- **Olish:** <https://console.groq.com/keys>
+- **Limit:** 30 req/daqiqa, 14400 token/daqiqa
+- **Modellar:** Llama 3.3 70B, Llama 3.1 70B, Mixtral 8x7B
+- **Plus:** Dunyodagi eng tez LLM inference (mash'hur LPU asosida)
 
-### 3) Alert uchun fix tavsiyalari
-Server detail → Recent activity → har bir alert yonida **AI fix** tugmasi.
-Claude alert + hozirgi serverni ko'rib, aniq diagnostika va tuzatish ketma-ketligini beradi.
+### OpenRouter — turli modellar
+- **Olish:** <https://openrouter.ai/keys>
+- **Limit:** Daily limits per :free model
+- **Modellar (faqat `:free` bilan tugaganlari):**
+  - `meta-llama/llama-3.3-70b-instruct:free`
+  - `google/gemini-2.0-flash-exp:free`
+  - `qwen/qwen-2.5-72b-instruct:free`
+  - `microsoft/phi-3-medium-128k-instruct:free`
+  - `nousresearch/hermes-3-llama-3.1-405b:free`
 
-### 4) Log tahlili
-AI Yordamchi → Log tahlili tabi.
-Container logini paste qiling (`docker logs ...`), kontekst yozing — Claude xato sabablari va keyingi qadamlarni aytib beradi.
+### Cerebras — super tez
+- **Olish:** <https://cloud.cerebras.ai/platform>
+- **Limit:** 30 req/daqiqa
+- **Modellar:** Llama 3.3 70B, Llama 3.1 70B, Llama 3.1 8B
+- **Plus:** Eng past kechikish (~100ms)
 
-### 5) AI tomonidan kunlik digest
-Sozlamalar → Schedule → "AI digest" toggle.
-Yoqilsa — kunlik 08:00 hisobotni Claude yozadi (templated o'rniga). HTML formatida, qisqartirilgan, e'tibor qaratiladigan narsalar alohida belgilanadi.
+---
 
-### 6) Erkin chat
-AI Yordamchi → Chat tabi. Server konteksti checkbox bilan qo'shiladi (default ON).
-Misol so'rovlar:
-- "Hozir nima holatda? Diqqat qiluvchi narsalar bormi?"
-- "Disk va RAM ishlatilishi haqida xulosangiz?"
-- "Backup strategiyasi haqida tavsiya bering"
-- "datagate container nega restart bo'ldi? logs haqida nima deyish mumkin?"
+## Custom provayder (mahalliy yoki o'z endpoint)
+
+OpenAI-compatible har qanday endpoint qo'llab-quvvatlanadi:
+
+### Ollama (mahalliy LLM)
+1. Ollama o'rnating: <https://ollama.com>
+2. Model yuklang: `ollama pull llama3.1:8b`
+3. Hub Sozlamalarda:
+   - Provayder: **Custom (OpenAI-compatible)**
+   - API kalit: `ollama` (har qanday qiymat — ollama tekshirmaydi)
+   - Base URL: `http://172.17.0.1:11434/v1` (Docker'dan host'ga)
+   - Model: `llama3.1:8b`
+
+### LM Studio
+- Local server boshlang
+- Base URL: `http://172.17.0.1:1234/v1`
+- API kalit: bo'sh yoki `lm-studio`
+
+---
+
+## AI har joyda ishlatiladigan funksiyalar
+
+| Joy | Vazifa | UI |
+|-----|--------|-----|
+| **Sozlamalar** | Tokenni saqlashdan oldin sinash | "Tokenni sinash" tugmasi |
+| **AI Yordamchi → Chat** | Erkin suhbat, server konteksti bilan | Tezkor tugmalar |
+| **AI Yordamchi → Log tahlili** | Log paste → xato sabablari | Forma + Tahlil tugmasi |
+| **Dashboard** | Fleet uchun bir martagi xulosa | "AI xulosa" tugmasi |
+| **Server detail** | Bitta serverni batafsil tahlil | "AI tahlil" tugmasi |
+| **Server detail → Alert** | Alert uchun aniq SSH/docker buyruqlar | Alert yonida "AI fix" |
+| **Sozlamalar → Schedule** | Kunlik 08:00 hisobotni AI yozadi | "AI digest" toggle |
 
 ## Token narxi taxminan
 
-| Operatsiya | Tokenlar (taxminan) | Haiku narxi |
-|-----------|---------------------|-------------|
-| Token validate | ~50 | ~$0.00002 |
-| AI xulosa (fleet, 3 server) | ~3000 input + 300 output | ~$0.001 |
-| AI tahlil (1 server) | ~2000 input + 500 output | ~$0.001 |
-| AI fix (1 alert) | ~2500 input + 600 output | ~$0.001 |
-| Smart digest (1 server) | ~2500 input + 500 output | ~$0.001 |
-| Log analizi (1KB log) | ~1000 input + 400 output | ~$0.0006 |
-| Daily digest (3 server, AI) | ~7500 input + 1500 output | ~$0.003 |
+| Operatsiya | Tokenlar | Gemini Free | Groq Free | OpenRouter :free |
+|-----------|----------|------------|-----------|------------------|
+| Token validate | ~50 | $0 | $0 | $0 |
+| AI xulosa (3 server) | ~3000 | $0 | $0 | $0 |
+| AI tahlil (1 server) | ~2500 | $0 | $0 | $0 |
+| AI fix (1 alert) | ~2500 | $0 | $0 | $0 |
+| Smart digest (1 server) | ~3000 | $0 | $0 | $0 |
+| Daily digest (3 server) | ~10000 | **0/1500 req/kun** | **0** | **0** |
 
-Kuniga ~$0.10 dan kam (Haiku bilan, 3 server, ko'p AI ishlatish bilan).
+BEPUL provayder bilan: **kuniga 1500+ AI so'rov, mutlaqo bepul**.
+
+## Provider ko'chish
+
+Provayder o'zgartirish — Sozlamalardan boshqa provayderni tanlang, yangi API kalitni kiriting, sinash tugmasi → Saqlash. **Restart kerak emas.**
 
 ## Xavfsizlik
 
-- API kalit DB ichida plain-text saqlanadi (`/app/data/hub.db`).
-- Faqat container ichida — `data/` volume mount'i orqali host'da saqlanadi.
+- API kalit DB'da plain text (`/app/data/hub.db`).
+- Faqat container ichida — `data/` volume mount orqali host'da.
 - Hub UI'da `password` input bilan ko'rinmaydi.
-- **Server status JSON'i Anthropic'ga yuboriladi** (faqat siz so'rasangiz).
-   - Tarkibi: container nomlari, endpoint URL'lar, DB nomlari va o'lchamlar, disk/RAM/CPU statistikasi
-   - Tarkibsiz: parollar, kod, foydalanuvchi ma'lumotlari, biznes ma'lumotlar
-- Kalit oqib chiqsa — [console.anthropic.com](https://console.anthropic.com/settings/keys) dan revoke qilib yangisi bilan almashtiring.
-
-## Custom system prompt
-
-Sozlamalar → AI bo'limi → "System prompt" maydoni.
-
-Default prompt: SRE assistant rolida, qisqa va texnik javob, O'zbek tilida (Latin).
-
-O'zgartirish mumkin — masalan, kod yozdirish, ma'lum tilda javob berish, korporativ tarzda yozish va h.k.
-
-## Modelni o'zgartirish
-
-Sozlamalar → AI bo'limi → "Model" select.
-O'zgartirgandan so'ng Saqlang — keyingi so'rovdan boshlab yangi model.
-
-Tavsiya:
-- **Kundalik chat va kichik tahlillar:** Haiku 4.5 (tez, arzon)
-- **Batafsil server tahlili, log analizi:** Sonnet 4.6
-- **Murakkab muammolar:** Opus 4.7
+- **Server status JSON'i tanlangan provayderga yuboriladi** (faqat siz so'rasangiz):
+  - Tarkibi: container nomlari, endpoint URL'lar, DB nomlari va o'lchamlar, disk/RAM/CPU
+  - Tarkibsiz: parollar, kod, biznes ma'lumotlar
+- Provayder o'zgarganda eski kalit DB'da saqlanmaydi (faqat yangisi).
 
 ## Troubleshooting
 
-### "Auth xato: kalit noto'g'ri"
-- Kalit nusxalashda probel/boshqa belgi qo'shilmaganmi?
-- Kalit tugamaganmi (rotatsiya bo'lishi mumkin)?
-- [console](https://console.anthropic.com) da kalit aktivmi?
+### "HTTP 401: Unauthorized"
+- API kalit noto'g'ri yoki tugagan
+- Provayder console'da kalit aktivmi tekshiring
+- Hub'da provayderni to'g'ri tanlanganmi?
 
-### "Model topilmadi"
-- Model nomini tekshiring (masalan, `claude-haiku-4-5-20251001`)
-- Anthropic akkauntingizda shu modelga kirish bormi?
-- API tier muammosi bo'lishi mumkin (yangi akkauntlarda free tier cheklovi)
+### "HTTP 429: Rate limit"
+- Bepul tier limit'iga yetdingiz
+- Bir oz kutib qayta urinib ko'ring
+- Yoki boshqa provayderga (masalan, Groq → OpenRouter) o'tkazib turing
 
-### "API xato: rate limit"
-- Bir vaqtning o'zida ko'p so'rov yuborilgan
-- Anthropic rate limit'ga yetdingiz — bir oz kutib qayta urining
-- Modelni Haiku ga o'zgartiring (limit ko'proq)
+### "Model not found"
+- Modelni boshqasi bilan almashtiring (dropdown'dan)
+- Yoki: provayder console'da bu model ruxsat berilganmi tekshiring (ba'zi modellar yangi akkauntlar uchun yopiq)
 
-### AI tahlili sekin
-- Opus eng sekin (10-30s)
-- Haiku tez (2-5s)
-- Server konteksti katta (>20KB) bo'lsa sekinlashadi
+### Custom (Ollama) javob bermayapti
+- `docker logs monitor-hub | grep ollama` — Hub log
+- Container'dan host'ga reachability: `docker exec monitor-hub curl http://172.17.0.1:11434`
+- Ollama service ishlayotganini tekshiring: `systemctl status ollama` yoki `curl http://localhost:11434`

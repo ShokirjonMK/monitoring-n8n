@@ -97,15 +97,17 @@ class WebhookEvent(SQLModel, table=True):
 class AISettings(SQLModel, table=True):
     """Singleton — id always = 1."""
     id: int = Field(default=1, primary_key=True)
-    provider: str = "anthropic"
+    provider: str = "gemini"   # gemini | groq | openrouter | cerebras | anthropic | openai | deepseek | custom
     api_key: Optional[str] = None
-    model: str = "claude-opus-4-7"
+    model: str = "gemini-1.5-flash-latest"
+    base_url: Optional[str] = None    # only used for 'custom' provider
     enabled: bool = False
     system_prompt: str = (
-        "You are an SRE assistant for a small Uzbek dev shop's server fleet. "
-        "Be concise, technical, and answer in Uzbek (Latin) unless the user writes in English. "
-        "When given server status JSON, look for anomalies: high disk/RAM, unhealthy containers, "
-        "failed endpoints, expiring SSL. Suggest specific commands when relevant."
+        "Sen monitoring tizimining SRE yordamchisisan. "
+        "Qisqa, texnik javoblar ber. O'zbek tilida (Latin) javob ber. "
+        "Server status JSON berilsa: anomaliyalarni topish (yuqori disk/RAM, "
+        "ishlamayotgan containerlar, javobsiz endpointlar, tugayotgan SSL). "
+        "Aniq buyruqlar tavsiya qil. Ortiqcha so'z yo'q."
     )
 
 
@@ -177,6 +179,9 @@ def init_db():
         ],
         "hubsettings": [
             ("use_ai_digest", "BOOLEAN DEFAULT 0"),
+        ],
+        "aisettings": [
+            ("base_url", "VARCHAR"),
         ],
     }
     with engine.connect() as conn:

@@ -171,41 +171,54 @@
 
   <!-- ════════════════ AI ══════════════════ -->
   <form method="post" action="/settings/ai" class="card" style="margin-bottom:18px">
-    <div class="card-h"><h2><i class="bi bi-stars"></i> AI (Claude)</h2></div>
+    <div class="card-h"><h2><i class="bi bi-stars"></i> AI (multi-provider)</h2></div>
 
     <div class="bdg bdg-inf" style="display:block;padding:10px 14px;margin-bottom:14px;font-size:12.5px;line-height:1.5">
-      <strong>📖 Qisqa qo'llanma:</strong>
-      <ol style="margin:6px 0 0;padding-left:20px">
-        <li><a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:#007AFF">console.anthropic.com</a> — Anthropic akkauntda API Key yarating</li>
-        <li>Quyiga yopishtiring va <strong>"Tokenni sinash"</strong> tugmasini bosing — kalit ishlayotganini bilasiz</li>
-        <li>Modelni tanlang (Haiku — tez/arzon, Opus — eng kuchli)</li>
-        <li>"AI yoqilgan" toggle ni yoqing → Saqlash</li>
-        <li>Endi <a href="/ai" style="color:#007AFF">AI Yordamchi</a> sahifasida ishlatasiz; Server detail sahifasida "AI tahlil" tugmasi paydo bo'ladi</li>
-      </ol>
+      <strong>🆓 BEPUL provayderlar tavsiyalari:</strong>
+      <ul style="margin:6px 0 0;padding-left:20px">
+        <li><b>Google Gemini</b> — eng yaxshi BEPUL tier (1500 req/kun) — <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a></li>
+        <li><b>Groq</b> — eng tez Llama (30 RPM BEPUL) — <a href="https://console.groq.com/keys" target="_blank">console.groq.com/keys</a></li>
+        <li><b>OpenRouter</b> — :free modellari (Llama 3.3, Gemini, Qwen) — <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a></li>
+        <li><b>Cerebras</b> — super tez Llama — <a href="https://cloud.cerebras.ai/platform" target="_blank">cloud.cerebras.ai</a></li>
+      </ul>
     </div>
 
     <div class="form-grp">
-      <label class="lbl">Anthropic API kalit</label>
-      <div style="display:flex;gap:8px">
-        <input class="inp" name="api_key" id="aiKey" type="password" style="flex:1"
-               placeholder="{% if ai.api_key %}{{ ai.api_key[:8] }}*** (mavjud — bo'sh qoldirilsa saqlanadi){% else %}sk-ant-...{% endif %}">
+      <label class="lbl">Provayder *</label>
+      <select class="sel" name="provider" id="providerSelect" onchange="onProviderChange()">
+        <!-- Filled by JS from /api/ai-providers -->
+      </select>
+      <div class="hlp" id="providerNotes">⏳ Yuklanmoqda...</div>
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl">API kalit</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input class="inp" name="api_key" id="aiKey" type="password" style="flex:1;min-width:200px"
+               placeholder="{% if ai.api_key %}{{ ai.api_key[:8] }}*** (mavjud — bo'sh qoldirilsa saqlanadi){% else %}provayder API kalitingiz{% endif %}">
         <button type="button" class="btn btn-sec btn-sm" onclick="validateAiKey()" id="validateBtn">
           <i class="bi bi-check2-circle"></i> Tokenni sinash
         </button>
       </div>
       <div class="hlp">
-        Bo'sh qoldirilsa mavjud kalit saqlanadi. <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com →  Settings → API Keys</a>
+        <a id="keyLink" href="#" target="_blank">Bu provayder uchun key olish →</a>
       </div>
       <div id="validateResult" style="display:none;margin-top:8px;padding:8px 12px;border-radius:6px;font-size:13px"></div>
     </div>
 
     <div class="form-grp">
       <label class="lbl">Model</label>
-      <select class="sel" name="model">
-        <option value="claude-opus-4-7" {% if ai.model == 'claude-opus-4-7' %}selected{% endif %}>claude-opus-4-7 (eng kuchli)</option>
-        <option value="claude-sonnet-4-6" {% if ai.model == 'claude-sonnet-4-6' %}selected{% endif %}>claude-sonnet-4-6 (balanced)</option>
-        <option value="claude-haiku-4-5-20251001" {% if ai.model == 'claude-haiku-4-5-20251001' %}selected{% endif %}>claude-haiku-4-5 (tez/arzon)</option>
+      <select class="sel" name="model" id="modelSelect">
+        <!-- Filled by JS based on provider -->
       </select>
+      <div class="hlp">Provayderning ushbu provayder uchun tavsiya qilingan modellari (BEPUL belgilanganlari).</div>
+    </div>
+
+    <div class="form-grp" id="baseUrlGroup" style="display:none">
+      <label class="lbl">Base URL (faqat custom uchun)</label>
+      <input class="inp" name="base_url" id="aiBaseUrl" value="{{ ai.base_url or '' }}"
+             placeholder="http://localhost:11434/v1 (Ollama) yoki boshqa OpenAI-compatible endpoint">
+      <div class="hlp">Ollama, LM Studio yoki o'z endpoint'ingiz uchun.</div>
     </div>
 
     <div class="form-grp">
@@ -280,19 +293,95 @@ async function testDefaultChannels() {
   alert(msg);
 }
 
+// ── AI provider catalog ─────────────────────────────────────────────────────
+let PROVIDERS = [];
+const SAVED = {
+  provider: {{ (ai.provider or 'gemini') | tojson }},
+  model: {{ (ai.model or '') | tojson }},
+};
+
+async function loadProviders() {
+  try {
+    const r = await fetch('/api/ai-providers');
+    const j = await r.json();
+    PROVIDERS = j.providers || [];
+
+    const sel = document.getElementById('providerSelect');
+    sel.innerHTML = '';
+    for (const p of PROVIDERS) {
+      const opt = document.createElement('option');
+      opt.value = p.key;
+      opt.textContent = p.label;
+      if (p.key === SAVED.provider) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    onProviderChange();
+  } catch (e) {
+    console.error('failed to load providers', e);
+  }
+}
+
+function onProviderChange() {
+  const key = document.getElementById('providerSelect').value;
+  const p = PROVIDERS.find(x => x.key === key);
+  if (!p) return;
+
+  // Notes
+  const notes = document.getElementById('providerNotes');
+  notes.innerHTML = (p.free ? '🆓 ' : '💰 ') + p.notes;
+
+  // Key link
+  const link = document.getElementById('keyLink');
+  if (p.key_url) {
+    link.href = p.key_url;
+    link.textContent = 'Bu provayder uchun key olish: ' + p.key_url;
+    link.style.display = 'inline';
+  } else {
+    link.style.display = 'none';
+  }
+
+  // Models
+  const ms = document.getElementById('modelSelect');
+  ms.innerHTML = '';
+  for (const [val, label] of (p.models || [])) {
+    const opt = document.createElement('option');
+    opt.value = val;
+    opt.textContent = label;
+    if (val === SAVED.model) opt.selected = true;
+    ms.appendChild(opt);
+  }
+  // Custom-only — allow free-text model
+  if (p.is_custom) {
+    const opt = document.createElement('option');
+    opt.value = SAVED.model || 'gpt-3.5-turbo';
+    opt.textContent = 'Custom model (' + (SAVED.model || 'gpt-3.5-turbo') + ')';
+    opt.selected = true;
+    ms.appendChild(opt);
+  }
+
+  // Base URL field — only for custom
+  document.getElementById('baseUrlGroup').style.display = p.is_custom ? 'block' : 'none';
+}
+
+loadProviders();
+
 async function validateAiKey() {
+  const provider = document.getElementById('providerSelect').value;
   const key = document.getElementById('aiKey').value;
-  const model = document.querySelector('select[name="model"]')?.value || 'claude-haiku-4-5-20251001';
+  const model = document.getElementById('modelSelect').value;
+  const baseUrl = document.getElementById('aiBaseUrl')?.value || '';
   const btn = document.getElementById('validateBtn');
   const result = document.getElementById('validateResult');
   btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> ...';
   result.style.display = 'block';
   result.style.background = 'rgba(60,60,67,.08)'; result.style.color = '#3A3A3C';
-  result.textContent = '⏳ Anthropic ga kichik test so\'rovi yuborilmoqda...';
+  result.textContent = '⏳ ' + provider + ' ga kichik test so\'rovi yuborilmoqda...';
   try {
     const fd = new FormData();
+    fd.append('provider', provider);
     fd.append('api_key', key);
     fd.append('model', model);
+    fd.append('base_url', baseUrl);
     const r = await fetch('/ai/validate-key', {method: 'POST', body: fd});
     const j = await r.json();
     if (j.ok) {

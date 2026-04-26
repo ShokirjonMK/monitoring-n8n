@@ -596,7 +596,7 @@ async def ai_chat(prompt: str = Form(...), include_status: str = Form("off"),
 
         msgs = [{"role": m.role, "content": m.content} for m in prior]
 
-        reply = AI.chat_once(ai.api_key, ai.model, ai.system_prompt, msgs, context=context)
+        reply = AI.chat_once(ai.api_key, ai.model, ai.system_prompt, msgs, context=context, provider=ai.provider, base_url=ai.base_url or "")
 
         s.add(DB.ChatMessage(role="assistant", content=reply))
         s.commit()
@@ -614,20 +614,32 @@ async def ai_summarize(_=Depends(require_login)):
         servers = _servers_dict(s)
 
     statuses = await AGENT.gather_all_status(servers)
-    text = AI.summarize_status(ai.api_key, ai.model, ai.system_prompt, statuses)
+    text = AI.summarize_status(ai.api_key, ai.model, ai.system_prompt, statuses, provider=ai.provider, base_url=ai.base_url or "")
     return {"reply": text}
 
 
 @app.post("/ai/validate-key")
-def ai_validate_key(api_key: str = Form(""), model: str = Form("claude-haiku-4-5-20251001"),
+def ai_validate_key(provider: str = Form("gemini"),
+                    api_key: str = Form(""),
+                    model: str = Form(""),
+                    base_url: str = Form(""),
                     _=Depends(require_login)):
-    """Test an Anthropic key (cheap call). User must paste the key here — never logged."""
+    """Test the provider+model+key combination."""
     with Session(DB.engine) as s:
         ai = s.exec(select(DB.AISettings).where(DB.AISettings.id == 1)).first()
     key = api_key.strip() or (ai.api_key if ai else "")
     if not key:
-        return {"ok": False, "error": "Avval API kalitni kiriting (yoki Sozlamalarda saqlang)"}
-    return AI.validate_key(key, model)
+        return {"ok": False, "error": "Avval API kalitni kiriting"}
+    if not model.strip():
+        return {"ok": False, "error": "Model tanlang"}
+    return AI.validate_key(key, model.strip(), provider=provider, base_url=base_url.strip())
+
+
+@app.get("/api/ai-providers")
+def api_ai_providers(_=Depends(require_login)):
+    """For UI dropdown — list all providers and their recommended models."""
+    from . import providers as P
+    return {"providers": P.list_providers()}
 
 
 @app.post("/ai/explain-server/{sid}")
@@ -641,7 +653,7 @@ async def ai_explain_server(sid: int, _=Depends(require_login)):
         if not srv:
             return JSONResponse({"error": "Server topilmadi"}, status_code=404)
     st = await AGENT.status(srv.base_url, srv.agent_token)
-    text = AI.explain_server(ai.api_key, ai.model, ai.system_prompt, {"name": srv.name, "status": st})
+    text = AI.explain_server(ai.api_key, ai.model, ai.system_prompt, {"name": srv.name, "status": st}, provider=ai.provider, base_url=ai.base_url or "")
     return {"reply": text}
 
 
@@ -668,7 +680,7 @@ async def ai_suggest_fix(aid: int, _=Depends(require_login)):
         "consecutive_count": alert.consecutive_count,
         "opened_at": alert.opened_at.isoformat() if alert.opened_at else None,
     }
-    text = AI.suggest_fix(ai.api_key, ai.model, ai.system_prompt, alert_dict, server_status)
+    text = AI.suggest_fix(ai.api_key, ai.model, ai.system_prompt, alert_dict, server_status, provider=ai.provider, base_url=ai.base_url or "")
     return {"reply": text}
 
 
@@ -680,7 +692,7 @@ async def ai_analyze_logs(logs: str = Form(...), context: str = Form(""),
         ai = s.exec(select(DB.AISettings).where(DB.AISettings.id == 1)).first()
         if not ai or not ai.enabled or not ai.api_key:
             return JSONResponse({"error": "AI sozlanmagan"}, status_code=400)
-    text = AI.analyze_logs(ai.api_key, ai.model, ai.system_prompt, logs, context)
+    text = AI.analyze_logs(ai.api_key, ai.model, ai.system_prompt, logs, context, provider=ai.provider, base_url=ai.base_url or "")
     return {"reply": text}
 
 
@@ -713,18 +725,22 @@ def settings_page(request: Request, saved: str = "", _=Depends(require_login)):
 @app.post("/settings/ai")
 def settings_ai_save(
     request: Request,
+    provider: str = Form("gemini"),
     api_key: str = Form(""),
-    model: str = Form("claude-opus-4-7"),
+    model: str = Form("gemini-1.5-flash-latest"),
+    base_url: str = Form(""),
     system_prompt: str = Form(""),
     enabled: str = Form("off"),
     _=Depends(require_login),
 ):
     with Session(DB.engine) as s:
         ai = s.exec(select(DB.AISettings).where(DB.AISettings.id == 1)).first()
+        ai.provider = provider.strip() or "gemini"
         # Don't overwrite api_key if blank (preserves existing)
         if api_key.strip():
             ai.api_key = api_key.strip()
-        ai.model = model.strip() or "claude-opus-4-7"
+        ai.model = model.strip() or "gemini-1.5-flash-latest"
+        ai.base_url = base_url.strip() or None
         ai.system_prompt = system_prompt.strip() or ai.system_prompt
         ai.enabled = (enabled == "on")
         s.add(ai); s.commit()
