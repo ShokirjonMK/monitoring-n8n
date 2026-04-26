@@ -51,6 +51,9 @@ sudo iptables -A INPUT -p tcp --dport 9990 -j ACCEPT
     </div>
 
     <div id="installResult" style="display:none">
+      <div style="font-size:12px;color:#8E8E93;margin-bottom:6px">
+        Yangi serverda quyidagi buyruqni ishga tushiring:
+      </div>
       <div style="position:relative;background:#1C1C1E;color:#E5E5EA;padding:14px 16px;border-radius:8px;font-family:'SF Mono',Menlo,monospace;font-size:11.5px;overflow-x:auto;line-height:1.5">
         <div id="installCmd" style="word-break:break-all;white-space:pre-wrap"></div>
       </div>
@@ -59,9 +62,22 @@ sudo iptables -A INPUT -p tcp --dport 9990 -j ACCEPT
           <i class="bi bi-clipboard"></i> Buyruqni nusxalash
         </button>
         <span class="hlp" style="margin:0">
-          Yangi serverga SSH qiling va shu buyruqni qo'ying — natija avtomat shu yerda ko'rinadi.
+          Skript Docker tekshiradi, agent o'rnatadi va Hub'ga avtomat qayd qiladi.
         </span>
       </div>
+
+      <details style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:12px;color:#8E8E93">
+          ▸ Agar root foydalanuvchi sifatida ishga tushirsangiz (sudosiz)
+        </summary>
+        <div style="margin-top:6px;background:#1C1C1E;color:#E5E5EA;padding:10px 14px;border-radius:6px;font-family:monospace;font-size:11.5px;overflow-x:auto;word-break:break-all">
+          <div id="installCmdRoot"></div>
+        </div>
+        <button type="button" class="btn btn-sec btn-sm" style="margin-top:6px"
+                onclick="navigator.clipboard.writeText(document.getElementById('installCmdRoot').textContent); this.innerHTML='<i class=&quot;bi bi-check-lg&quot;></i> Nusxalandi'">
+          <i class="bi bi-clipboard"></i> Root variantini nusxalash
+        </button>
+      </details>
       <div id="waiting" style="display:none;margin-top:14px;padding:14px;background:rgba(0,122,255,.04);border-radius:8px;font-size:13px">
         <i class="bi bi-hourglass-split" id="waitIcon"></i>
         <span id="waitText">Skript ishga tushirilishini kutmoqda... Tokenning amal qilish muddati 1 soat.</span>
@@ -238,6 +254,7 @@ async function generateInstall() {
     _generatedToken = j.token;
 
     document.getElementById('installCmd').textContent = j.command;
+    document.getElementById('installCmdRoot').textContent = j.command_root || j.command;
     document.getElementById('installResult').style.display = 'block';
     document.getElementById('waiting').style.display = 'block';
 

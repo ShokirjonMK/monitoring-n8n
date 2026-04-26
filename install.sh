@@ -37,6 +37,30 @@ err()  { printf "  %s %s\n" "$(c_red "✗")" "$*"; }
 
 step "1. Sistema talablari tekshiruvi"
 
+# Permissions check — need root for /opt + docker
+PARENT_DIR="$(dirname "$AGENT_DIR")"
+if [ "$(id -u)" -ne 0 ]; then
+    NEED_SUDO=0
+    [ ! -w "$PARENT_DIR" ] && NEED_SUDO=1
+    if ! groups | grep -qwE 'docker|root'; then NEED_SUDO=1; fi
+
+    if [ "$NEED_SUDO" -eq 1 ]; then
+        err "Bu skript root yoki docker guruhi a'zosi bo'lgan foydalanuvchidan ishga tushirilishi kerak."
+        echo
+        echo "  $(c_bold "Tuzatish — quyidagi 1 qator buyruqni qaytadan ishga tushiring:")"
+        echo
+        if [ -n "${HUB_URL:-}" ] && [ -n "${INSTALL_TOKEN:-}" ]; then
+            echo "  $(c_blue "curl -fsSL \"${HUB_URL}/install/${INSTALL_TOKEN}\" | sudo HUB_URL=\"${HUB_URL}\" INSTALL_TOKEN=\"${INSTALL_TOKEN}\" bash")"
+        else
+            echo "  $(c_blue "curl -fsSL https://raw.githubusercontent.com/ShokirjonMK/monitoring-n8n/main/install.sh | sudo bash")"
+        fi
+        echo
+        echo "  Yoki avval root bo'ling: $(c_blue "sudo -i")"
+        echo
+        exit 1
+    fi
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
     err "Docker topilmadi. Avval Docker o'rnating: https://docs.docker.com/engine/install/"
     exit 1
@@ -48,10 +72,6 @@ if ! docker compose version >/dev/null 2>&1; then
     exit 1
 fi
 ok "Docker Compose: $(docker compose version --short)"
-
-if [ "$(id -u)" -ne 0 ] && ! groups | grep -q docker; then
-    warn "Siz root emassiz va docker guruhida emas — sudo yoki docker guruhiga qo'shilish kerak bo'lishi mumkin."
-fi
 
 # ─── 2. Repository ───────────────────────────────────────────────────────────
 

@@ -183,7 +183,13 @@ async def api_install_token(request: Request, _=Depends(require_login)):
     scheme = request.url.scheme
     host = request.url.netloc
     hub_url = f"{scheme}://{host}"
+    # Default with `sudo` since /opt and docker need root.
+    # If user is already root, sudo just no-ops.
     install_cmd = (
+        f'curl -fsSL "{hub_url}/install/{token}" | '
+        f'sudo HUB_URL="{hub_url}" INSTALL_TOKEN="{token}" bash'
+    )
+    install_cmd_root = (
         f'curl -fsSL "{hub_url}/install/{token}" | '
         f'HUB_URL="{hub_url}" INSTALL_TOKEN="{token}" bash'
     )
@@ -192,6 +198,7 @@ async def api_install_token(request: Request, _=Depends(require_login)):
         "hub_url": hub_url,
         "install_url": f"{hub_url}/install/{token}",
         "command": install_cmd,
+        "command_root": install_cmd_root,
         "expires_at": expires.isoformat(),
     }
 
