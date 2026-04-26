@@ -4,11 +4,14 @@
 
 {% block top_actions %}
 {% if configured %}
+  <span class="ai-badge"><span class="dot"></span> {{ ai.provider }} · {{ ai.model[:30] }}</span>
   <form method="post" action="/ai/clear" style="display:inline">
     <button class="btn btn-sec btn-sm" onclick="return confirm('Suhbat tarixini o\'chirilsinmi?')">
       <i class="bi bi-trash"></i> Tarixni tozalash
     </button>
   </form>
+{% else %}
+  <span class="ai-badge off"><span class="dot"></span> AI o'chiq</span>
 {% endif %}
 {% endblock %}
 

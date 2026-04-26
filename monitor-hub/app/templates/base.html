@@ -208,6 +208,16 @@
   </div>
   <div class="body">{% block content %}{% endblock %}</div>
 </div>
+
+<style>
+.ai-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:14px;
+          font-size:11.5px;font-weight:600;background:rgba(52,199,89,.10);color:#248A3D;
+          margin-left:8px}
+.ai-badge.off{background:rgba(60,60,67,.08);color:#8E8E93}
+.ai-badge .dot{width:6px;height:6px;border-radius:50%;background:#34C759}
+.ai-badge.off .dot{background:#8E8E93}
+@media(max-width:768px){.ai-badge{display:none}}
+</style>
 {% else %}
 {% block guest %}{% endblock %}
 {% endif %}

@@ -1,9 +1,21 @@
 """AI integration — multi-provider via app.providers."""
 import json
 import logging
+import datetime
 from . import providers as P
 
 log = logging.getLogger("hub.ai")
+
+
+def _json_default(o):
+    """Make datetime/date/Decimal etc. JSON-serializable."""
+    if isinstance(o, (datetime.datetime, datetime.date, datetime.time)):
+        return o.isoformat()
+    if hasattr(o, "model_dump"):
+        return o.model_dump()
+    if hasattr(o, "__dict__"):
+        return o.__dict__
+    return str(o)
 
 
 def chat_once(api_key: str, model: str, system: str, messages: list[dict],
@@ -12,7 +24,9 @@ def chat_once(api_key: str, model: str, system: str, messages: list[dict],
     """One-shot chat. messages: [{role, content}, ...]."""
     msgs = list(messages)
     if context:
-        ctx_str = "<server_context>\n" + json.dumps(context, indent=2)[:30000] + "\n</server_context>"
+        ctx_str = ("<server_context>\n"
+                   + json.dumps(context, indent=2, default=_json_default)[:30000]
+                   + "\n</server_context>")
         if msgs and msgs[-1]["role"] == "user":
             msgs[-1] = {**msgs[-1], "content": ctx_str + "\n\n" + msgs[-1]["content"]}
     try:
