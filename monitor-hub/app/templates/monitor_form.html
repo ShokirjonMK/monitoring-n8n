@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Yangi monitor{% endblock %}
+{% block n_mon %}active{% endblock %}
+
+{% block content %}
+<div style="max-width:680px">
+  <a href="/monitors" style="font-size:13px;color:#8E8E93"><i class="bi bi-chevron-left"></i> Monitorlar</a>
+
+  <form method="post" action="/monitors/new" class="card" style="margin-top:14px">
+    <div class="form-grp">
+      <label class="lbl">Nomi *</label>
+      <input class="inp" name="name" required>
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl">Turi *</label>
+      <select class="sel" name="type" required>
+        <option value="http">HTTP — URL ga GET so'rov</option>
+        <option value="tcp">TCP — port reachability</option>
+        <option value="ssl">SSL — sertifikat tekshiruvi</option>
+        <option value="command">Command — agent'da buyruq ishga tushirish (kelajakda)</option>
+      </select>
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl">Target *</label>
+      <input class="inp" name="target" placeholder="https://example.com yoki host:port" required>
+      <div class="hlp">HTTP: URL · TCP: <code>host:port</code> · SSL: <code>host[:port]</code></div>
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl">Kutilgan natija</label>
+      <input class="inp" name="expected" placeholder="200 (HTTP), 14 (SSL min days)">
+      <div class="hlp">HTTP: status code · SSL: min kun (default 14) · TCP: bo'sh qoldiring</div>
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl">Interval (sekund)</label>
+      <input class="inp" type="number" name="interval_seconds" value="300" min="30">
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl">Server (ixtiyoriy)</label>
+      <select class="sel" name="server_id">
+        <option value="">— Hub o'zi tekshiradi —</option>
+        {% for s in servers %}
+          <option value="{{ s.id }}">{{ s.name }}</option>
+        {% endfor %}
+      </select>
+      <div class="hlp">Server tanlansa, agent orqali tekshiriladi.</div>
+    </div>
+
+    <div class="form-grp" style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <label class="lbl" style="margin:0">Faol</label>
+      </div>
+      <label class="tgl">
+        <input type="checkbox" name="is_active" checked>
+        <span class="tgl-s"></span>
+      </label>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <a href="/monitors" class="btn btn-sec">Bekor</a>
+      <button class="btn btn-pri" type="submit">Yaratish</button>
+    </div>
+  </form>
+
+  <div class="card" style="margin-top:14px;background:rgba(255,149,0,.05);border:1px solid rgba(255,149,0,.20)">
+    <div style="font-size:13px;color:#c27400">
+      <strong>Eslatma:</strong> Maxsus monitorlar hozircha sxema ko'rinishida saqlanadi —
+      tezkor relizda Hub'ning o'z scheduler'i ularni vaqti-vaqti bilan bajaradi.
+      Asosiy monitoring (containerlar, endpointlar, bazalar) <strong>agent</strong> tomonida
+      <code>config.yml</code> orqali sozlanadi va darhol ishlaydi.
+    </div>
+  </div>
+</div>
+{% endblock %}

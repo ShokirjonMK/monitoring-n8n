@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}AI Yordamchi{% endblock %}
+{% block n_ai %}active{% endblock %}
+
+{% block top_actions %}
+{% if configured %}
+  <form method="post" action="/ai/clear" style="display:inline">
+    <button class="btn btn-sec btn-sm" onclick="return confirm('Suhbat tarixini o\'chirilsinmi?')">
+      <i class="bi bi-trash"></i> Tarixni tozalash
+    </button>
+  </form>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if not configured %}
+<div class="card" style="text-align:center;padding:50px">
+  <div style="font-size:50px">🤖</div>
+  <h2 style="margin:14px 0 8px">AI hali sozlanmagan</h2>
+  <p style="color:#8E8E93;margin:0 0 18px">
+    Sozlamalar bo'limida Anthropic API kalitini kiriting va AI ni yoqing.
+  </p>
+  <a href="/settings" class="btn btn-pri"><i class="bi bi-gear"></i> Sozlamalarga o'tish</a>
+</div>
+{% else %}
+
+<div class="card" style="margin-bottom:14px;padding:0">
+  <div id="chat" style="height:60vh;overflow-y:auto;padding:18px">
+    {% for m in messages %}
+      <div class="msg msg-{{ m.role }}">
+        <div class="msg-r">{% if m.role == 'user' %}👤 Siz{% else %}🤖 Claude{% endif %}</div>
+        <div class="msg-b">{{ m.content }}</div>
+      </div>
+    {% else %}
+      <div style="text-align:center;color:#8E8E93;padding:40px">
+        <i class="bi bi-chat-dots" style="font-size:40px"></i>
+        <div style="margin-top:10px">Suhbatni boshlang. Claude server holatlari haqida bilim oladi.</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <form id="chatForm" style="border-top:1px solid rgba(60,60,67,.10);padding:14px;background:#FAFAFA;border-radius:0 0 12px 12px">
+    <textarea class="inp txt" name="prompt" id="promptInput" rows="2"
+              placeholder="So'rang: server holati, tekshiruvchi savol, recommendatsiya..."
+              style="margin-bottom:8px" required></textarea>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+        <input type="checkbox" name="include_status" id="incStatus" checked>
+        Hozirgi server holatini kontekstga qo'shish
+      </label>
+      <div style="display:flex;gap:6px">
+        <button type="button" class="btn btn-sec btn-sm" onclick="quickPrompt('Hozir nima holatda? Diqqat qiluvchi narsalar bormi?')">📊 Tekshir</button>
+        <button type="button" class="btn btn-sec btn-sm" onclick="quickPrompt('Disk va RAM ishlatilishi haqida xulosangiz?')">💾 Resurs</button>
+        <button type="submit" class="btn btn-pri btn-sm" id="sendBtn"><i class="bi bi-send"></i> Yuborish</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div style="font-size:12px;color:#8E8E93;text-align:center">
+  Model: <code>claude-opus-4-7</code> · Suhbat tarixi: oxirgi 20 xabar
+</div>
+
+<style>
+.msg{margin-bottom:18px}
+.msg-r{font-size:12px;font-weight:700;color:#8E8E93;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.msg-b{padding:12px 16px;border-radius:14px;line-height:1.55;font-size:14px;white-space:pre-wrap}
+.msg-user .msg-b{background:rgba(0,122,255,.10);color:#0055b3}
+.msg-assistant .msg-b{background:#fff;border:1px solid rgba(60,60,67,.10)}
+</style>
+
+<script>
+const chat = document.getElementById('chat');
+chat.scrollTop = chat.scrollHeight;
+
+function appendMsg(role, content) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg msg-' + role;
+  wrap.innerHTML = `<div class="msg-r">${role === 'user' ? '👤 Siz' : '🤖 Claude'}</div><div class="msg-b"></div>`;
+  wrap.querySelector('.msg-b').textContent = content;
+  chat.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function quickPrompt(p) {
+  document.getElementById('promptInput').value = p;
+  document.getElementById('chatForm').dispatchEvent(new Event('submit', {cancelable: true}));
+}
+
+document.getElementById('chatForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const promptEl = document.getElementById('promptInput');
+  const prompt = promptEl.value.trim();
+  if (!prompt) return;
+  const include = document.getElementById('incStatus').checked ? 'on' : 'off';
+  const btn = document.getElementById('sendBtn');
+
+  appendMsg('user', prompt);
+  promptEl.value = '';
+  btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> O\'ylanmoqda...';
+
+  // Placeholder
+  const placeholderId = 'ph-' + Date.now();
+  const ph = document.createElement('div');
+  ph.id = placeholderId;
+  ph.className = 'msg msg-assistant';
+  ph.innerHTML = '<div class="msg-r">🤖 Claude</div><div class="msg-b">⏳ ...</div>';
+  chat.appendChild(ph); chat.scrollTop = chat.scrollHeight;
+
+  try {
+    const fd = new FormData();
+    fd.append('prompt', prompt);
+    fd.append('include_status', include);
+    const r = await fetch('/ai/chat', {method:'POST', body:fd});
+    const j = await r.json();
+    document.getElementById(placeholderId).remove();
+    appendMsg('assistant', j.reply || j.error || '?');
+  } catch (e) {
+    document.getElementById(placeholderId).remove();
+    appendMsg('assistant', '❌ Xato: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-send"></i> Yuborish';
+    promptEl.focus();
+  }
+});
+</script>
+
+{% endif %}
+{% endblock %}

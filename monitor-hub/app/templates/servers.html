@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Serverlar{% endblock %}
+{% block n_srv %}active{% endblock %}
+
+{% block top_actions %}
+<a href="/servers/new" class="btn btn-pri btn-sm"><i class="bi bi-plus-lg"></i> Yangi server</a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <table class="tbl">
+    <thead><tr>
+      <th>Nomi</th><th>URL</th><th>Status</th><th>Aktiv</th><th>Yaratilgan</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for s in servers %}
+      {% set h = healths.get(s.id, {}) %}
+      {% set is_up = h.get('status') == 'ok' %}
+      <tr>
+        <td>
+          <strong><a href="/servers/{{ s.id }}">{{ s.name }}</a></strong>
+          {% if s.description %}<div style="font-size:11.5px;color:#8E8E93">{{ s.description }}</div>{% endif %}
+        </td>
+        <td><code style="font-size:12px">{{ s.base_url }}</code></td>
+        <td>
+          {% if is_up %}<span class="bdg bdg-suc">🟢 ONLINE</span>
+          {% else %}<span class="bdg bdg-dan">🔴 DOWN</span>
+            <div style="font-size:11px;color:#FF3B30">{{ h.get('_error', '?')[:50] }}</div>
+          {% endif %}
+        </td>
+        <td>{% if s.is_active %}<span class="bdg bdg-suc">faol</span>{% else %}<span class="bdg bdg-neu">o'chiq</span>{% endif %}</td>
+        <td style="font-size:12px;color:#8E8E93">{{ s.created_at.strftime('%d.%m.%Y') }}</td>
+        <td style="white-space:nowrap;text-align:right">
+          <a href="/servers/{{ s.id }}/edit" class="btn btn-sec btn-sm"><i class="bi bi-pencil"></i></a>
+          <form method="post" action="/servers/{{ s.id }}/delete" style="display:inline"
+                onsubmit="return confirm('Serverni o\'chirishga ishonchingiz komilmi?')">
+            <button class="btn btn-dan btn-sm"><i class="bi bi-trash"></i></button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" style="text-align:center;padding:30px;color:#8E8E93">
+        Hech qanday server qo'shilmagan. <a href="/servers/new">Yangi qo'shish</a>
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

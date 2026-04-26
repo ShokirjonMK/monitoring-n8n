@@ -1,0 +1,175 @@
+{
+  "name": "03 — SSL Watcher (kunlik 06:00)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Schedule 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "load-servers",
+      "name": "Load Servers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const raw = $env.MONITOR_SERVERS_JSON || '[]';\nlet servers;\ntry { servers = JSON.parse(raw); } catch (e) { servers = []; }\nreturn servers.map(s => ({ json: s }));"
+      }
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch /ssl/all",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}/ssl/all",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "evaluate",
+      "name": "Build Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Build SSL summary across all servers. Alert if any domain <14d, otherwise silent.\nconst lines = [];\nconst critical = []; // <3d\nconst warning = [];  // 3..14d\nconst ok = [];       // >=14d\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  const server = data.server || 'unknown';\n  for (const d of (data.domains || [])) {\n    if (!d.ok) {\n      critical.push(<code>✗ ${d.host}:${d.port} — ${(d.error || 'check failed').slice(0, 80)}</code>);\n      continue;\n    }\n    const days = d.days_left;\n    const line = <code>${d.host}:${d.port} — ${days} kun (${d.expires_at.slice(0, 10)})</code>;\n    if (days <= 3) critical.push(<code>🔴 ${line}</code>);\n    else if (days <= 14) warning.push(<code>🟠 ${line}</code>);\n    else ok.push(<code>🟢 ${line}</code>);\n  }\n}\n\nif (!critical.length && !warning.length) {\n  // Optionally send a daily 'all good' message — only if there are domains tracked\n  if (!ok.length) return [];\n  return [{ json: { message: <code>🔒 <b>SSL hisoboti</b>\\n\\nHammasi 14+ kun:\\n</code> + ok.map(l => <code>• ${l}</code>).join('\\n') } }];\n}\n\nlet msg = '';\nif (critical.length) msg += '🔴 <b>Kritik SSL</b> (<3 kun yoki xato)\\n' + critical.map(l => <code>• ${l}</code>).join('\\n') + '\\n\\n';\nif (warning.length) msg += '🟠 <b>Diqqat</b> (<14 kun)\\n' + warning.map(l => <code>• ${l}</code>).join('\\n') + '\\n\\n';\nif (ok.length) msg += <code>🟢 ${ok.length} ta domen 14+ kun\\n</code>;\n\nreturn [{ json: { message: msg.trim() } }];"
+      }
+    },
+    {
+      "id": "send-tg",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule 06:00": {
+      "main": [
+        [
+          {
+            "node": "Load Servers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Servers": {
+      "main": [
+        [
+          {
+            "node": "Fetch /ssl/all",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch /ssl/all": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "03-7f1481a93eed"
+}

@@ -1,0 +1,363 @@
+{
+  "name": "04 — Daily Backup (kunlik 02:00)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Schedule 02:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "load-servers",
+      "name": "Load Servers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const raw = $env.MONITOR_SERVERS_JSON || '[]';\nlet servers;\ntry { servers = JSON.parse(raw); } catch (e) { servers = []; }\nreturn servers.map(s => ({ json: s }));"
+      }
+    },
+    {
+      "id": "run-backup",
+      "name": "POST /backup/run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}/backup/run",
+        "options": {
+          "timeout": 600000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "explode",
+      "name": "Explode Files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// For each successful backup result, emit one item with {server_url, server_token, server_name, filename, size, type}.\nconst out = [];\nfor (const item of $input.all()) {\n  const data = item.json;\n  const server = data.server || 'unknown';\n  // Reconstruct server credentials from the upstream item — we passed url/token earlier.\n  // n8n keeps prior items accessible via $('Load Servers').itemMatching(...) but easier:\n  // store url/token alongside the result.\n  for (const r of (data.results || [])) {\n    out.push({ json: { server, name: r.name, type: r.type, ok: r.ok, error: r.error, filename: r.filename, size_bytes: r.size_bytes } });\n  }\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "lookup-server",
+      "name": "Inject server creds",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Re-attach server URL/token by name from MONITOR_SERVERS_JSON\nconst raw = $env.MONITOR_SERVERS_JSON || '[]';\nlet servers = [];\ntry { servers = JSON.parse(raw); } catch (e) {}\nconst byName = Object.fromEntries(servers.map(s => [s.name, s]));\n\nreturn $input.all().map(item => {\n  const j = item.json;\n  const s = byName[j.server] || {};\n  return { json: { ...j, server_url: s.url, server_token: s.token } };\n});"
+      }
+    },
+    {
+      "id": "filter-ok",
+      "name": "Only OK + small enough",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.size_bytes }}",
+              "rightValue": 50000000,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "fetch-file",
+      "name": "Fetch backup file",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1620,
+        200
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.server_url }}/backup/file/{{ $json.filename }}",
+        "options": {
+          "timeout": 600000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "neverError": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.server_token }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "send-doc",
+      "name": "Telegram sendDocument",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1860,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendDocument",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "caption",
+              "value": "=📦 {{ $json.server }}/{{ $json.name }} ({{ Math.round($json.size_bytes/1024) }}K)"
+            },
+            {
+              "name": "document",
+              "parameterType": "formBinaryData",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 600000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "summary",
+      "name": "Build Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        480
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Aggregate all results from Inject server creds — produce one summary message.\n// We pull from the upstream 'Inject server creds' node so we don't lose data.\nconst items = $('Inject server creds').all();\nconst byServer = {};\nfor (const it of items) {\n  const j = it.json;\n  const s = j.server;\n  byServer[s] = byServer[s] || [];\n  byServer[s].push(j);\n}\n\nlet msg = <code>📦 <b>Backup hisoboti</b> — ${new Date().toISOString().slice(0, 16).replace('T', ' ')}\\n\\n</code>;\nlet errors = 0;\nfor (const [server, list] of Object.entries(byServer)) {\n  msg += <code><b>${server}</b>\\n</code>;\n  for (const r of list) {\n    if (r.ok) {\n      const sz = r.size_bytes;\n      const sz_s = sz > 1024<b>1024 ? <code>${(sz/(1024</b>1024)).toFixed(1)}M</code> : <code>${Math.round(sz/1024)}K</code>;\n      const sent = r.size_bytes < 50000000 ? ' (TG ✓)' : ' (lokal)';\n      msg += <code>  ✅ ${r.name} — ${sz_s}${sent}\\n</code>;\n    } else {\n      msg += <code>  ❌ ${r.name} — ${(r.error || 'failed').slice(0, 100)}\\n</code>;\n      errors++;\n    }\n  }\n}\nmsg += <code>\\n${errors === 0 ? '✓ Xatosiz' : </code>⚠️ ${errors} ta xato<code>}</code>;\n\nreturn [{ json: { message: msg } }];"
+      }
+    },
+    {
+      "id": "send-summary",
+      "name": "Telegram Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1620,
+        480
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule 02:00": {
+      "main": [
+        [
+          {
+            "node": "Load Servers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Servers": {
+      "main": [
+        [
+          {
+            "node": "POST /backup/run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /backup/run": {
+      "main": [
+        [
+          {
+            "node": "Explode Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Explode Files": {
+      "main": [
+        [
+          {
+            "node": "Inject server creds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inject server creds": {
+      "main": [
+        [
+          {
+            "node": "Only OK + small enough",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only OK + small enough": {
+      "main": [
+        [
+          {
+            "node": "Fetch backup file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch backup file": {
+      "main": [
+        [
+          {
+            "node": "Telegram sendDocument",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Summary": {
+      "main": [
+        [
+          {
+            "node": "Telegram Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "04-268ef466d464"
+}

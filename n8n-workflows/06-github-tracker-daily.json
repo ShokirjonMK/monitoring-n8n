@@ -1,0 +1,388 @@
+{
+  "name": "06 — GitHub Tracker (kunlik 09:00)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Schedule 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "list-repos",
+      "name": "List Repos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/users/{{ $env.GITHUB_OWNER }}/repos?per_page=100&sort=pushed",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.GITHUB_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "explode",
+      "name": "Per-Repo + Group",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Each input item is one repo. Add a 'group' field by splitting name on '-'.\n// Custom groups override.\nconst customGroups = {\n  'data-get': 'data',\n  'kaos': 'kaos',\n  'greenfin-uz': 'greenfin',\n  'dissertation-reestr': 'dissertation',\n  'devops-agent': 'devops',\n};\nconst exclude = new Set([]);\n\nconst out = [];\nfor (const item of $input.all()) {\n  const r = item.json;\n  if (exclude.has(r.name)) continue;\n  const group = customGroups[r.name] || r.name.split('-')[0];\n  out.push({ json: {\n    name: r.name,\n    full_name: r.full_name,\n    group,\n    pushed_at: r.pushed_at,\n    private: r.private,\n    default_branch: r.default_branch || 'main',\n    description: r.description,\n  }});\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "since",
+      "name": "Compute Since",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Add 'since_24h' to every repo item — used in subsequent API calls.\nconst since = new Date(Date.now() - 24 <b> 3600 </b> 1000).toISOString();\nreturn $input.all().map(it => ({ json: { ...it.json, since_24h: since } }));"
+      }
+    },
+    {
+      "id": "fetch-commits",
+      "name": "Get commits",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        200
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $json.full_name }}/commits?since={{ $json.since_24h }}&per_page=50",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.GITHUB_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "fetch-prs",
+      "name": "Get PRs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        380
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $json.full_name }}/pulls?state=all&sort=updated&direction=desc&per_page=20",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.GITHUB_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "fetch-issues",
+      "name": "Get issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        560
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $json.full_name }}/issues?state=all&since={{ $json.since_24h }}&per_page=20",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.GITHUB_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "fetch-runs",
+      "name": "Get CI runs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        740
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $json.full_name }}/actions/runs?per_page=5",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.GITHUB_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "aggregate",
+      "name": "Aggregate by group",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        470
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Walk through pairs of items from 4 parallel branches by index.\n// In n8n, the 'index' aligns when the same repo went through all 4 calls.\nconst since = new Date(Date.now() - 24 <b> 3600 </b> 1000);\n\nconst commitsItems = $('Get commits').all();\nconst prsItems = $('Get PRs').all();\nconst issuesItems = $('Get issues').all();\nconst runsItems = $('Get CI runs').all();\nconst metaItems = $('Compute Since').all();\n\nconst projects = {};\n\nfor (let i = 0; i < metaItems.length; i++) {\n  const meta = metaItems[i].json;\n  const repo = meta.name;\n  const group = meta.group;\n\n  const commits = Array.isArray(commitsItems[i]?.json) ? commitsItems[i].json : [];\n  const prs = Array.isArray(prsItems[i]?.json) ? prsItems[i].json : [];\n  const issues = Array.isArray(issuesItems[i]?.json) ? issuesItems[i].json : [];\n  const runsObj = runsItems[i]?.json || {};\n  const runs = runsObj.workflow_runs || [];\n\n  const recentPrs = prs.filter(p => new Date(p.updated_at) >= since);\n  const openPrs = prs.filter(p => p.state === 'open');\n  const mergedToday = recentPrs.filter(p => p.merged_at && new Date(p.merged_at) >= since);\n  const closedToday = recentPrs.filter(p => p.state === 'closed' && !p.merged_at);\n\n  const newIssues = issues.filter(i => !i.pull_request && new Date(i.created_at) >= since);\n  const closedIssues = issues.filter(i => !i.pull_request && i.state === 'closed' && i.closed_at && new Date(i.closed_at) >= since);\n\n  const lastFailed = runs.find(r => r.conclusion === 'failure' && new Date(r.created_at) >= since);\n\n  projects[group] = projects[group] || {\n    group, repos: [], totalCommits: 0, totalContribs: {}, openPrs: 0,\n    mergedToday: 0, closedToday: 0, newIssues: 0, closedIssues: 0,\n    failedCi: [],\n  };\n  const p = projects[group];\n  p.repos.push({\n    name: repo,\n    commits: commits.length,\n    samples: commits.slice(0, 3).map(c => (c.commit?.message || '').split('\\n')[0]),\n    private: meta.private,\n  });\n  p.totalCommits += commits.length;\n  for (const c of commits) {\n    const a = c.author?.login || c.commit?.author?.name || '?';\n    p.totalContribs[a] = (p.totalContribs[a] || 0) + 1;\n  }\n  p.openPrs += openPrs.length;\n  p.mergedToday += mergedToday.length;\n  p.closedToday += closedToday.length;\n  p.newIssues += newIssues.length;\n  p.closedIssues += closedIssues.length;\n  if (lastFailed) p.failedCi.push({ repo, name: lastFailed.name, html_url: lastFailed.html_url });\n}\n\n// Build markdown digest\nconst date = new Date().toLocaleDateString('uz-UZ', { day:'2-digit', month:'long', year:'numeric' });\nlet msg = <code>📊 <b>GitHub kunlik hisobot</b>\\n${date}\\n${'─'.repeat(20)}\\n</code>;\n\nconst groupNames = Object.keys(projects).sort();\nlet totalCommits = 0, totalProjects = 0;\nfor (const g of groupNames) {\n  const p = projects[g];\n  if (p.totalCommits === 0 && p.openPrs === 0 && p.mergedToday === 0 && p.newIssues === 0) continue;\n  totalProjects++;\n  totalCommits += p.totalCommits;\n  msg += <code>\\n🏗 <b>${g}</b> (${p.repos.length} repo)\\n</code>;\n  msg += <code>   📈 ${p.totalCommits} commit · ${p.mergedToday} PR merged · ${p.openPrs} ochiq PR · ${p.newIssues} yangi issue\\n</code>;\n  const top = Object.entries(p.totalContribs).sort((a,b)=>b[1]-a[1]).slice(0,3);\n  if (top.length) msg += <code>   🔥 Faol: ${top.map(([u,n])=></code>@${u} (${n})<code>).join(', ')}\\n</code>;\n  for (const r of p.repos) {\n    if (r.commits === 0) continue;\n    const samples = r.samples.map(s => <code>\"${s.slice(0, 60)}\"</code>).join(', ');\n    msg += <code>   • \\</code>${r.name}\\<code> — ${r.commits} commit · ${samples}\\n</code>;\n  }\n  if (p.failedCi.length) {\n    msg += <code>   ⚠️ CI fail: ${p.failedCi.map(f => </code>${f.repo}/${f.name}<code>).join(', ')}\\n</code>;\n  }\n}\n\nif (totalCommits === 0) msg += <code>\\n⏸ Kechagi 24 soatda faollik yo'q.</code>;\nelse msg += <code>\\n${'─'.repeat(20)}\\n📅 Jami: ${totalCommits} commit · ${totalProjects} ta loyiha</code>;\n\nreturn [{ json: { message: msg } }];"
+      }
+    },
+    {
+      "id": "send",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1620,
+        470
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            },
+            {
+              "name": "disable_web_page_preview",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule 09:00": {
+      "main": [
+        [
+          {
+            "node": "List Repos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Repos": {
+      "main": [
+        [
+          {
+            "node": "Per-Repo + Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Per-Repo + Group": {
+      "main": [
+        [
+          {
+            "node": "Compute Since",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Since": {
+      "main": [
+        [
+          {
+            "node": "Get commits",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get PRs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get issues",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get CI runs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get commits": {
+      "main": [
+        [
+          {
+            "node": "Aggregate by group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get PRs": {
+      "main": [
+        []
+      ]
+    },
+    "Get issues": {
+      "main": [
+        []
+      ]
+    },
+    "Get CI runs": {
+      "main": [
+        []
+      ]
+    },
+    "Aggregate by group": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "06-636aea14ec36"
+}

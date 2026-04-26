@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Monitorlar{% endblock %}
+{% block n_mon %}active{% endblock %}
+
+{% block top_actions %}
+<a href="/monitors/new" class="btn btn-pri btn-sm"><i class="bi bi-plus-lg"></i> Yangi monitor</a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <table class="tbl">
+    <thead><tr><th>Nomi</th><th>Turi</th><th>Server</th><th>Target</th><th>Interval</th><th>Holat</th><th></th></tr></thead>
+    <tbody>
+    {% for m in monitors %}
+      {% set s = (servers | selectattr('id','equalto',m.server_id) | list | first) %}
+      <tr>
+        <td><strong>{{ m.name }}</strong></td>
+        <td><span class="bdg bdg-inf">{{ m.type }}</span></td>
+        <td>{{ s.name if s else '— global —' }}</td>
+        <td><code style="font-size:12px">{{ m.target[:60] }}</code></td>
+        <td style="color:#8E8E93">{{ m.interval_seconds }}s</td>
+        <td>
+          {% if not m.is_active %}<span class="bdg bdg-neu">o'chiq</span>
+          {% elif m.last_status == 'ok' %}<span class="bdg bdg-suc">OK</span>
+          {% elif m.last_status == 'fail' %}<span class="bdg bdg-dan">FAIL</span>
+          {% else %}<span class="bdg bdg-neu">?</span>{% endif %}
+        </td>
+        <td style="text-align:right">
+          <form method="post" action="/monitors/{{ m.id }}/delete" style="display:inline"
+                onsubmit="return confirm('O\'chirilsinmi?')">
+            <button class="btn btn-dan btn-sm"><i class="bi bi-trash"></i></button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" style="text-align:center;color:#8E8E93;padding:30px">
+        Maxsus monitorlar yo'q. Asosiy monitoring (containerlar, endpointlar, bazalar)
+        agent'ning <code>config.yml</code> ichida sozlanadi.<br>
+        Bu yerda — <strong>qo'shimcha</strong> monitorlar (masalan: tashqi URL, TCP port).
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

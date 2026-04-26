@@ -1,0 +1,175 @@
+{
+  "name": "05 — Daily Digest (kunlik 08:00)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Schedule 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "load-servers",
+      "name": "Load Servers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const raw = $env.MONITOR_SERVERS_JSON || '[]';\nlet servers;\ntry { servers = JSON.parse(raw); } catch (e) { servers = []; }\nreturn servers.map(s => ({ json: s }));"
+      }
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch /status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}/status",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "compose",
+      "name": "Compose Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Build a single rich daily digest message.\nfunction fmtBytes(n) {\n  if (n >= 1024*<b>3) return <code>${(n/(1024</b><b>3)).toFixed(1)}G</code>;\n  if (n >= 1024</b><b>2) return <code>${(n/(1024</b><b>2)).toFixed(0)}M</code>;\n  return <code>${Math.round(n/1024)}K</code>;\n}\nfunction fmtUptime(s) {\n  const d = Math.floor(s/86400);\n  const h = Math.floor((s%86400)/3600);\n  return <code>${d}k ${h}s</code>;\n}\n\nconst date = new Date().toLocaleDateString('uz-UZ', { day: '2-digit', month: 'long', year: 'numeric' });\nlet msg = <code>☀️ </b>Kunlik server hisoboti<b>\\n${date}\\n${'─'.repeat(20)}\\n</code>;\n\nfor (const item of $input.all()) {\n  const d = item.json;\n  const server = d.server || 'unknown';\n  const containers = d.containers || [];\n  const eps = d.endpoints || [];\n  const dbs = d.databases || [];\n\n  const totalC = containers.length;\n  const healthyC = containers.filter(c => c.state === 'running' && (c.health === 'healthy' || c.health === 'none')).length;\n  const okEps = eps.filter(e => e.ok).length;\n  const okDbs = dbs.filter(x => x.ok).length;\n\n  const rootDisk = (d.disk || []).find(x => x.mount === '/host' || x.mount === '/') || (d.disk||[])[0] || {};\n  const m = d.memory || {};\n  const l = d.load || {};\n\n  msg += <code>\\n🖥 </b>${server}<b> (${fmtUptime(d.uptime_seconds || 0)})\\n</code>;\n  msg += <code>   ✅ Containerlar: ${healthyC}/${totalC}\\n</code>;\n  msg += <code>   📊 Disk ${rootDisk.used_pct||0}% · RAM ${m.used_pct||0}% · Load ${l['1m']||0}\\n\\n</code>;\n\n  msg += <code>   </b>Endpointlar<b> (${okEps}/${eps.length}):\\n</code>;\n  for (const e of eps) {\n    msg += <code>      ${e.ok ? '✓' : '✗'} ${e.name} — ${e.status || 'ERR'} (${e.elapsed_ms}ms)\\n</code>;\n  }\n\n  msg += <code>\\n   </b>Bazalar* (${okDbs}/${dbs.length}):\\n</code>;\n  for (const db of dbs) {\n    const sz = db.info && db.info.size_bytes;\n    const conn = db.info && db.info.active_connections;\n    msg += <code>      ${db.ok ? '✓' : '✗'} ${db.name} (${db.type}${sz?', '+fmtBytes(sz):''}${conn!==undefined?', conn='+conn:''})\\n</code>;\n  }\n\n  // Unhealthy containers\n  const bad = containers.filter(c => c.health === 'unhealthy' || c.state !== 'running');\n  if (bad.length) {\n    msg += <code>\\n   ⚠️ Diqqat:\\n</code>;\n    for (const c of bad) msg += <code>      ✗ ${c.name} — ${c.health}/${c.state}\\n</code>;\n  }\n}\n\nreturn [{ json: { message: msg } }];"
+      }
+    },
+    {
+      "id": "send",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule 08:00": {
+      "main": [
+        [
+          {
+            "node": "Load Servers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Servers": {
+      "main": [
+        [
+          {
+            "node": "Fetch /status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch /status": {
+      "main": [
+        [
+          {
+            "node": "Compose Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Digest": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "05-4ef7740e614f"
+}

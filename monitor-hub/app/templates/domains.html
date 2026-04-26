@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}SSL & Domains{% endblock %}
+{% block n_dom %}active{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-h"><h2><i class="bi bi-search"></i> Tezkor tekshirish</h2></div>
+  <form method="post" action="/domains/check" target="_blank" style="display:flex;gap:8px;align-items:end">
+    <div style="flex:1">
+      <label class="lbl">Domen</label>
+      <input class="inp" name="host" placeholder="example.com" required>
+    </div>
+    <div style="width:100px">
+      <label class="lbl">Port</label>
+      <input class="inp" name="port" value="443" required>
+    </div>
+    <button class="btn btn-pri" type="submit"><i class="bi bi-shield-check"></i> Tekshir</button>
+  </form>
+  <div class="hlp" style="margin-top:6px">Natija JSON shaklida yangi tabda ochiladi.</div>
+</div>
+
+{% for g in grouped %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-h"><h2>{{ g.server.name }}</h2>
+    <a href="/servers/{{ g.server.id }}" class="btn btn-sec btn-sm">Server</a></div>
+  {% if not g.domains %}
+    <div style="color:#8E8E93;font-size:13.5px;padding:20px;text-align:center">
+      Hech qanday domen sozlanmagan. <code>{{ g.server.base_url }}</code> ning <code>config.yml</code> ichida
+      <code>domains:</code> ostida qo'shing va <code>POST /reload</code> qiling.
+    </div>
+  {% else %}
+  <table class="tbl">
+    <thead><tr><th>Domen</th><th>Holat</th><th>Tugashiga</th><th>Issuer</th></tr></thead>
+    <tbody>
+    {% for d in g.domains %}
+      <tr>
+        <td><strong>{{ d.host }}</strong>:{{ d.port }}</td>
+        <td>{% if d.ok %}<span class="bdg bdg-suc">OK</span>
+            {% else %}<span class="bdg bdg-dan">{{ (d.error or 'fail')[:40] }}</span>{% endif %}</td>
+        <td>
+          {% if d.ok %}
+            {% if d.days_left <= 3 %}<span class="bdg bdg-dan">{{ d.days_left }} kun</span>
+            {% elif d.days_left <= 14 %}<span class="bdg bdg-wrn">{{ d.days_left }} kun</span>
+            {% else %}<span class="bdg bdg-suc">{{ d.days_left }} kun</span>{% endif %}
+            <div style="font-size:11px;color:#8E8E93">{{ d.expires_at[:10] }}</div>
+          {% else %}—{% endif %}
+        </td>
+        <td style="font-size:11px;color:#8E8E93">{{ (d.issuer or '')[:80] }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:40px;color:#8E8E93">
+  Faol server yo'q. <a href="/servers/new">Birinchi serverni qo'shing</a>.
+</div>
+{% endfor %}
+{% endblock %}

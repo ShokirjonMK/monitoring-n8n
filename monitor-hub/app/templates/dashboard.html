@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block n_dash %}active{% endblock %}
+
+{% block top_actions %}
+<button class="btn btn-sec btn-sm" onclick="location.reload()"><i class="bi bi-arrow-clockwise"></i> Yangilash</button>
+{% if ai_enabled %}
+<button class="btn btn-pri btn-sm" onclick="aiSummary()" id="aiBtn"><i class="bi bi-stars"></i> AI xulosa</button>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if not cards %}
+<div class="card" style="text-align:center;padding:50px">
+  <div style="font-size:60px;color:#AEAEB2">🛰</div>
+  <h2 style="margin:14px 0 8px">Hech qanday server yo'q</h2>
+  <p style="color:#8E8E93;margin:0 0 18px">Birinchi server qo'shing va monitoring boshlansin.</p>
+  <a href="/servers/new" class="btn btn-pri"><i class="bi bi-plus-lg"></i> Server qo'shish</a>
+</div>
+{% endif %}
+
+<!-- AI summary panel (hidden by default) -->
+<div id="aiPanel" class="card" style="display:none;margin-bottom:14px;border-left:3px solid #007AFF">
+  <div class="card-h"><h2><i class="bi bi-stars"></i> AI xulosa</h2>
+    <button class="btn btn-sec btn-sm" onclick="document.getElementById('aiPanel').style.display='none'"><i class="bi bi-x"></i></button></div>
+  <div id="aiOut" style="white-space:pre-wrap;font-size:13.5px;line-height:1.5"></div>
+</div>
+
+{% for c in cards %}
+<div class="srv-card {% if not c.ok %}dn{% endif %}">
+  <div style="display:flex;align-items:start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px">
+      <h2 style="margin:0 0 4px;font-size:18px">
+        {% if c.ok %}🟢{% else %}🔴{% endif %} {{ c.server.name }}
+        {% if c.server.description %}<span style="font-size:12px;color:#8E8E93;font-weight:400">— {{ c.server.description }}</span>{% endif %}
+      </h2>
+      <div style="font-size:12px;color:#8E8E93">
+        <code>{{ c.server.base_url }}</code>
+        {% if c.ok %} · uptime: {{ (c.uptime_seconds // 86400) }}k {{ ((c.uptime_seconds % 86400) // 3600) }}s{% endif %}
+      </div>
+    </div>
+    <div>
+      <a href="/servers/{{ c.server.id }}" class="btn btn-sec btn-sm"><i class="bi bi-eye"></i> Batafsil</a>
+      <a href="/servers/{{ c.server.id }}/edit" class="btn btn-sec btn-sm"><i class="bi bi-pencil"></i></a>
+    </div>
+  </div>
+
+  {% if not c.ok %}
+  <div class="bdg bdg-dan" style="display:block;margin-top:10px;padding:10px 14px">
+    <i class="bi bi-exclamation-triangle"></i> {{ c.error }}
+  </div>
+  {% else %}
+  <div class="stat-grid" style="margin-top:14px">
+    <div class="stat">
+      <div class="n" style="color:{{ '#34C759' if c.containers_healthy == c.containers_total else '#FF3B30' }}">
+        {{ c.containers_healthy }}/{{ c.containers_total }}
+      </div>
+      <div class="l">Containerlar</div>
+    </div>
+    <div class="stat">
+      <div class="n" style="color:{{ '#34C759' if c.endpoints_ok == c.endpoints_total else '#FF3B30' }}">
+        {{ c.endpoints_ok }}/{{ c.endpoints_total }}
+      </div>
+      <div class="l">Endpointlar</div>
+    </div>
+    <div class="stat">
+      <div class="n" style="color:{{ '#34C759' if c.dbs_ok == c.dbs_total else '#FF3B30' }}">
+        {{ c.dbs_ok }}/{{ c.dbs_total }}
+      </div>
+      <div class="l">Bazalar</div>
+    </div>
+    <div class="stat">
+      <div class="n" style="color:{{ '#FF3B30' if c.disk_pct > 80 else '#1C1C1E' }}">{{ c.disk_pct }}%</div>
+      <div class="l">Disk</div>
+    </div>
+    <div class="stat">
+      <div class="n" style="color:{{ '#FF9500' if c.mem_pct > 85 else '#1C1C1E' }}">{{ c.mem_pct }}%</div>
+      <div class="l">RAM</div>
+    </div>
+    <div class="stat">
+      <div class="n" style="color:{{ '#FF9500' if c.load_1m > 5 else '#1C1C1E' }}">{{ c.load_1m }}</div>
+      <div class="l">Load 1m</div>
+    </div>
+  </div>
+
+  {% if c.containers_bad or c.endpoints_bad or c.dbs_bad %}
+  <div style="margin-top:12px;padding:10px 14px;background:rgba(255,59,48,.05);border-radius:8px">
+    <div style="font-size:12px;font-weight:700;color:#d93028;margin-bottom:6px">⚠️ Diqqat:</div>
+    {% for c2 in c.containers_bad %}
+      <div style="font-size:13px">• Container <code>{{ c2.name }}</code> — {{ c2.health }}/{{ c2.state }}</div>
+    {% endfor %}
+    {% for e in c.endpoints_bad %}
+      <div style="font-size:13px">• Endpoint <code>{{ e.name }}</code> — {{ e.status or 'TIMEOUT' }}</div>
+    {% endfor %}
+    {% for d in c.dbs_bad %}
+      <div style="font-size:13px">• DB <code>{{ d.name }}</code> — {{ (d.error or 'down')[:80] }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+{% endfor %}
+
+{% if cards %}
+<div style="text-align:center;margin-top:18px">
+  <a href="/servers/new" class="btn btn-sec"><i class="bi bi-plus-lg"></i> Yana server qo'shish</a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function aiSummary() {
+  const btn = document.getElementById('aiBtn');
+  const panel = document.getElementById('aiPanel');
+  const out = document.getElementById('aiOut');
+  btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Tahlil qilinmoqda...';
+  panel.style.display = 'block';
+  out.textContent = '⏳ Claude tahlil qilmoqda...';
+  try {
+    const r = await fetch('/ai/summarize', {method: 'POST'});
+    const j = await r.json();
+    out.textContent = j.reply || j.error || '?';
+  } catch (e) {
+    out.textContent = 'Xato: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-stars"></i> AI xulosa';
+  }
+}
+// Auto-refresh every 60s
+setTimeout(() => location.reload(), 60000);
+</script>
+{% endblock %}

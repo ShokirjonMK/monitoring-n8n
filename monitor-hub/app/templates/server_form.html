@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Tahrirlash: ' ~ server.name if server else 'Yangi server' }}{% endblock %}
+{% block n_srv %}active{% endblock %}
+
+{% block content %}
+<div style="max-width:680px">
+  <div style="margin-bottom:16px">
+    <a href="/servers" style="font-size:13px;color:#8E8E93"><i class="bi bi-chevron-left"></i> Serverlar</a>
+  </div>
+
+  {% if error %}<div class="bdg bdg-dan" style="display:block;margin-bottom:14px;padding:10px 14px">{{ error }}</div>{% endif %}
+
+  <form method="post" action="{{ '/servers/' ~ server.id ~ '/edit' if server else '/servers/new' }}" class="card">
+    <div class="form-grp">
+      <label class="lbl">Nomi *</label>
+      <input class="inp" name="name" value="{{ server.name if server else (form.name if form else '') }}" required>
+      <div class="hlp">Yagona, qisqa nom (masalan: <code>main-uz</code>, <code>dev-server</code>)</div>
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl">Agent URL *</label>
+      <input class="inp" name="base_url"
+             value="{{ server.base_url if server else (form.base_url if form else 'http://172.17.0.1:9990') }}"
+             placeholder="http://IP:9990" required>
+      <div class="hlp">Monitor-agent manzili (port 9990 default).
+        <strong>Diqqat:</strong> agar n8n bilan bir hostda bo'lsa <code>http://172.17.0.1:9990</code> ishlatadi.
+        Boshqa hostda — public IP yoki domen.
+      </div>
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl">Agent token *</label>
+      <input class="inp" type="text" name="agent_token"
+             value="{{ server.agent_token if server else (form.agent_token if form else '') }}"
+             style="font-family:monospace;font-size:12.5px" required>
+      <div class="hlp">Server'dagi <code>/opt/monitor-agent/.agent-secret</code> faylidagi qiymat.</div>
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl">Tavsif</label>
+      <textarea class="inp" name="description" rows="2">{{ server.description if server else '' }}</textarea>
+    </div>
+
+    <div class="form-grp" style="display:flex;align-items:center;gap:14px;justify-content:space-between">
+      <div>
+        <label class="lbl" style="margin-bottom:0">Faollik</label>
+        <div class="hlp" style="margin-top:0">O'chirilsa nazorat qilinmaydi</div>
+      </div>
+      <label class="tgl">
+        <input type="checkbox" name="is_active" {% if not server or server.is_active %}checked{% endif %}>
+        <span class="tgl-s"></span>
+      </label>
+    </div>
+
+    <hr style="border:none;border-top:1px solid rgba(60,60,67,.10);margin:20px 0">
+
+    <h3 style="font-size:14px;margin:0 0 12px;color:#3A3A3C">
+      <i class="bi bi-bell"></i> Telegram alert kanali (faqat real muammolar)
+    </h3>
+    <div class="hlp" style="margin-bottom:10px">
+      Bo'sh qoldirilsa — global default ishlatadi. Guruh/kanal ID'lari <code>-100...</code> bilan boshlanadi.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 220px;gap:10px;margin-bottom:14px">
+      <div>
+        <label class="lbl">Alert bot token</label>
+        <input class="inp" name="alert_bot_token" value="{{ server.alert_bot_token or '' if server else '' }}"
+               placeholder="123456:AAExxxxx (default uchun bo'sh qoldiring)" style="font-family:monospace;font-size:12.5px">
+      </div>
+      <div>
+        <label class="lbl">Alert chat ID</label>
+        <input class="inp" name="alert_chat_id" value="{{ server.alert_chat_id or '' if server else '' }}"
+               placeholder="813225336 yoki -100...">
+      </div>
+    </div>
+
+    <h3 style="font-size:14px;margin:0 0 12px;color:#3A3A3C">
+      <i class="bi bi-megaphone"></i> Telegram report kanali (digest, backup natijasi)
+    </h3>
+    <div class="hlp" style="margin-bottom:10px">
+      Reportlar va alert'lar alohida bo'lishi tavsiya etiladi (digest spam yo'q, alert'lar zudlik bilan ko'rinadi).
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 220px;gap:10px;margin-bottom:14px">
+      <div>
+        <label class="lbl">Report bot token</label>
+        <input class="inp" name="report_bot_token" value="{{ server.report_bot_token or '' if server else '' }}"
+               placeholder="default uchun bo'sh qoldiring" style="font-family:monospace;font-size:12.5px">
+      </div>
+      <div>
+        <label class="lbl">Report chat ID</label>
+        <input class="inp" name="report_chat_id" value="{{ server.report_chat_id or '' if server else '' }}"
+               placeholder="813225336 yoki -100...">
+      </div>
+    </div>
+
+    {% if server %}
+    <hr style="border:none;border-top:1px solid rgba(60,60,67,.10);margin:20px 0">
+    <h3 style="font-size:14px;margin:0 0 12px;color:#3A3A3C">
+      <i class="bi bi-cone-striped"></i> Maintenance (rejalashtirilgan ish)
+    </h3>
+    <div class="form-grp">
+      <label class="lbl">Quyidagi vaqtgacha alertlar tindiriladi (UTC)</label>
+      <input class="inp" type="datetime-local" name="maintenance_until"
+             value="{% if server.maintenance_until %}{{ server.maintenance_until.strftime('%Y-%m-%dT%H:%M') }}{% endif %}">
+      <div class="hlp">Bo'sh qoldirilsa — aktiv emas. Holatni o'rganishda davom etadi, lekin alert yubormaydi.</div>
+    </div>
+    {% endif %}
+
+    <div style="display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:18px">
+      <div>
+        {% if server %}
+        <button type="button" class="btn btn-sec btn-sm" onclick="testChannels()">
+          <i class="bi bi-send"></i> Kanallarni sinash
+        </button>
+        {% endif %}
+      </div>
+      <div style="display:flex;gap:8px">
+        <a href="/servers" class="btn btn-sec">Bekor</a>
+        <button class="btn btn-pri" type="submit"><i class="bi bi-floppy-disk"></i> Saqlash</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{% if server %}
+<script>
+async function testChannels() {
+  const r = await fetch('/servers/{{ server.id }}/test-channels', {method: 'POST'});
+  const j = await r.json();
+  let msg = `Alert kanali: ${j.alert_channel}\nReport kanali: ${j.report_channel}\n\n`;
+  msg += `Alert: ${j.alert.ok ? '✓' : '✗ ' + (j.alert.description || j.alert.error || '')}\n`;
+  msg += `Report: ${j.report.ok ? '✓' : '✗ ' + (j.report.description || j.report.error || '')}`;
+  alert(msg);
+}
+</script>
+{% endif %}
+{% endblock %}

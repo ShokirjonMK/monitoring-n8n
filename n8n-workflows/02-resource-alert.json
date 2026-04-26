@@ -1,0 +1,175 @@
+{
+  "name": "02 — Resource Alert (har 5 daq)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "load-servers",
+      "name": "Load Servers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const raw = $env.MONITOR_SERVERS_JSON || '[]';\nlet servers;\ntry { servers = JSON.parse(raw); } catch (e) { servers = []; }\nreturn servers.map(s => ({ json: s }));"
+      }
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch /resources",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}/resources",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "evaluate",
+      "name": "Evaluate Thresholds",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Threshold-based alerts with per-key 30-min debounce.\nconst staticData = $getWorkflowStaticData('global');\nstaticData.alertedAt = staticData.alertedAt || {};\n\nconst DEBOUNCE_MS = 30 <b> 60 </b> 1000; // 30 min\nconst now = Date.now();\nfunction shouldAlert(key) {\n  const last = staticData.alertedAt[key] || 0;\n  if (now - last < DEBOUNCE_MS) return false;\n  staticData.alertedAt[key] = now;\n  return true;\n}\nfunction clearAlert(key) {\n  delete staticData.alertedAt[key];\n}\n\nconst messages = [];\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  const server = data.server || 'unknown';\n  const t = data.thresholds || { disk_pct: 80, mem_pct: 85, load_1m: 5 };\n\n  // Disk\n  for (const fs of (data.disk || [])) {\n    const key = <code>${server}::disk::${fs.mount}</code>;\n    if (fs.used_pct >= t.disk_pct) {\n      if (shouldAlert(key)) {\n        const free_g = (fs.available_bytes / (1024*<b>3)).toFixed(1);\n        const total_g = (fs.total_bytes / (1024</b><b>3)).toFixed(0);\n        messages.push(<code>💾 </b>${server}<b> — disk \\</code>${fs.mount}\\<code> ${fs.used_pct}% to'la (${free_g}G qoldi / ${total_g}G)</code>);\n      }\n    } else {\n      clearAlert(key);\n    }\n  }\n\n  // Memory\n  const m = data.memory || {};\n  if (m.used_pct >= t.mem_pct) {\n    const key = <code>${server}::mem</code>;\n    if (shouldAlert(key)) {\n      const used_g = (m.used_bytes / (1024</b><b>3)).toFixed(1);\n      const total_g = (m.total_bytes / (1024</b><b>3)).toFixed(0);\n      messages.push(<code>🧠 </b>${server}<b> — RAM ${m.used_pct}% band (${used_g}G/${total_g}G)</code>);\n    }\n  } else {\n    clearAlert(<code>${server}::mem</code>);\n  }\n\n  // Load\n  const l = data.load || {};\n  if (l['1m'] && l['1m'] >= t.load_1m) {\n    const key = <code>${server}::load</code>;\n    if (shouldAlert(key)) {\n      messages.push(<code>⚡️ </b>${server}<b> — load avg yuqori: 1m=${l['1m']} 5m=${l['5m']} 15m=${l['15m']}</code>);\n    }\n  } else {\n    clearAlert(<code>${server}::load</code>);\n  }\n}\n\nif (!messages.length) return [];\nreturn [{ json: { message: '🟠 </b>Resurs ogohlantirishi*\\n\\n' + messages.join('\\n') } }];"
+      }
+    },
+    {
+      "id": "send-tg",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "keypair",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Load Servers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Servers": {
+      "main": [
+        [
+          {
+            "node": "Fetch /resources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch /resources": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Thresholds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Thresholds": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "02-a1a1a10bb029"
+}

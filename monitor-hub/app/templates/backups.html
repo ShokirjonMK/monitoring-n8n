@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Backuplar{% endblock %}
+{% block n_bkp %}active{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-h"><h2>Manual backup</h2></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    {% for s in servers %}
+      <button class="btn btn-pri btn-sm" onclick="runBackup({{ s.id }}, '{{ s.name }}')">
+        <i class="bi bi-play-fill"></i> {{ s.name }}
+      </button>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-h"><h2>Mavjud backuplar ({{ items|length }})</h2></div>
+  <table class="tbl">
+    <thead><tr><th>Server</th><th>Fayl</th><th>O'lcham</th><th>Sana</th></tr></thead>
+    <tbody>
+    {% for it in items %}
+      <tr>
+        <td><strong>{{ it.server.name }}</strong></td>
+        <td style="font-family:monospace;font-size:12px">{{ it.filename }}</td>
+        <td>{% if it.size_bytes > 1024**2 %}{{ '%.1fM'|format(it.size_bytes/(1024**2)) }}
+            {% else %}{{ (it.size_bytes//1024)|int }}K{% endif %}</td>
+        <td style="color:#8E8E93">{{ it.modified[:16].replace('T', ' ') }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" style="text-align:center;color:#8E8E93;padding:30px">Backup yo'q</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function runBackup(sid, name) {
+  if (!confirm(name + ' uchun backup ishga tushirilsinmi?')) return;
+  const r = await fetch('/backups/run/' + sid, {method: 'POST'});
+  const j = await r.json();
+  alert('Natija:\n' + JSON.stringify(j.results || j, null, 2));
+  location.reload();
+}
+</script>
+{% endblock %}

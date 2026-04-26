@@ -1,0 +1,179 @@
+{
+  "name": "01 — Server Watchdog (har 2 daq)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "load-servers",
+      "name": "Load Servers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const raw = $env.MONITOR_SERVERS_JSON || '[]';\nlet servers;\ntry { servers = JSON.parse(raw); } catch (e) { servers = []; }\nreturn servers.map(s => ({ json: s }));"
+      }
+    },
+    {
+      "id": "fetch-status",
+      "name": "Fetch /status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}/status",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.token }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "evaluate",
+      "name": "Evaluate (state diff)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// State diff: compare current status vs last run, emit alerts for changes only.\nconst staticData = $getWorkflowStaticData('global');\nstaticData.lastSeen = staticData.lastSeen || {};\nstaticData.alerts = staticData.alerts || {};\n\nconst alerts = [];   // new alerts to send\nconst recoveries = [];   // alerts that have cleared\nconst nowKeys = new Set();\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  const server = data.server || 'unknown';\n  const ts = data.timestamp || new Date().toISOString();\n\n  // Container health\n  for (const c of (data.containers || [])) {\n    const key = <code>${server}::container::${c.name}</code>;\n    nowKeys.add(key);\n    const bad = c.health === 'unhealthy' || c.state === 'exited' || c.state === 'restarting';\n    const wasBad = !!staticData.alerts[key];\n    if (bad && !wasBad) {\n      alerts.push({server, type: 'container', name: c.name, status: c.status, state: c.state, health: c.health});\n      staticData.alerts[key] = {ts, status: c.status};\n    } else if (!bad && wasBad) {\n      recoveries.push({server, type: 'container', name: c.name, sinceTs: staticData.alerts[key].ts});\n      delete staticData.alerts[key];\n    }\n  }\n\n  // Endpoint health\n  for (const e of (data.endpoints || [])) {\n    const key = <code>${server}::endpoint::${e.name}</code>;\n    nowKeys.add(key);\n    const bad = !e.ok;\n    const wasBad = !!staticData.alerts[key];\n    if (bad && !wasBad) {\n      alerts.push({server, type: 'endpoint', name: e.name, url: e.url, status: e.status, error: e.error});\n      staticData.alerts[key] = {ts, status: e.status, error: e.error};\n    } else if (!bad && wasBad) {\n      recoveries.push({server, type: 'endpoint', name: e.name, sinceTs: staticData.alerts[key].ts});\n      delete staticData.alerts[key];\n    }\n  }\n\n  // Database health\n  for (const db of (data.databases || [])) {\n    const key = <code>${server}::db::${db.name}</code>;\n    nowKeys.add(key);\n    const bad = !db.ok;\n    const wasBad = !!staticData.alerts[key];\n    if (bad && !wasBad) {\n      alerts.push({server, type: 'database', name: db.name, dbType: db.type, error: db.error});\n      staticData.alerts[key] = {ts, error: db.error};\n    } else if (!bad && wasBad) {\n      recoveries.push({server, type: 'database', name: db.name, sinceTs: staticData.alerts[key].ts});\n      delete staticData.alerts[key];\n    }\n  }\n\n  staticData.lastSeen[server] = ts;\n}\n\n// Build Telegram message if there's anything to report\nfunction fmtSince(ts) {\n  const t = new Date(ts);\n  const mins = Math.round((Date.now() - t.getTime()) / 60000);\n  if (mins < 60) return <code>${mins} daq</code>;\n  if (mins < 1440) return <code>${Math.floor(mins / 60)} soat</code>;\n  return <code>${Math.floor(mins / 1440)} kun</code>;\n}\n\nlet message = '';\nif (alerts.length) {\n  message += '🔴 <b>Yangi xatolar</b>\\n\\n';\n  for (const a of alerts) {\n    if (a.type === 'container') {\n      message += <code>• \\</code>${a.server}\\<code> — container <b>${a.name}</b> → ${a.health}/${a.state}\\n</code>;\n    } else if (a.type === 'endpoint') {\n      message += <code>• \\</code>${a.server}\\<code> — endpoint <b>${a.name}</b> → ${a.status || 'TIMEOUT'}${a.error ? ' (' + a.error.slice(0, 80) + ')' : ''}\\n</code>;\n    } else {\n      message += <code>• \\</code>${a.server}\\<code> — DB <b>${a.name}</b> → ${(a.error || 'down').slice(0, 100)}\\n</code>;\n    }\n  }\n}\nif (recoveries.length) {\n  if (message) message += '\\n';\n  message += '🟢 <b>Tiklandi</b>\\n\\n';\n  for (const r of recoveries) {\n    message += <code>• \\</code>${r.server}\\<code> — ${r.type} <b>${r.name}</b> (${fmtSince(r.sinceTs)} dan keyin)\\n</code>;\n  }\n}\n\nif (!message) {\n  // No alerts to send — return empty so the IF node skips Telegram\n  return [];\n}\n\nreturn [{ json: { message, alerts: alerts.length, recoveries: recoveries.length } }];"
+      }
+    },
+    {
+      "id": "send-tg",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            },
+            {
+              "name": "disable_web_page_preview",
+              "value": "true"
+            }
+          ]
+        },
+        "specifyBody": "keypair",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Load Servers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Servers": {
+      "main": [
+        [
+          {
+            "node": "Fetch /status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch /status": {
+      "main": [
+        [
+          {
+            "node": "Evaluate (state diff)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate (state diff)": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "01-6d71a9f2af28"
+}

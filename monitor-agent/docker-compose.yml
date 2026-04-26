@@ -1,0 +1,28 @@
+services:
+  monitor-agent:
+    build: .
+    container_name: monitor-agent
+    restart: unless-stopped
+    ports:
+      - "9990:9990"
+    environment:
+      AGENT_TOKEN_FILE: /run/secrets/agent_token
+      LOG_LEVEL: INFO
+    env_file:
+      - path: ./.agent-env
+        required: false
+    volumes:
+      # Docker socket — to run `docker ps`, `docker exec`
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Host filesystem read-only — for /proc reads + sqlite copy
+      - /:/host:ro
+      # Config + backup output
+      - ./config.yml:/app/config.yml:ro
+      - ./backups:/backups
+    # Secret token — read from .agent-secret
+    secrets:
+      - agent_token
+
+secrets:
+  agent_token:
+    file: ./.agent-secret

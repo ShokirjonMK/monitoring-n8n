@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Alertlar{% endblock %}
+{% block n_alt %}active{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-h">
+    <h2>Alert tarixi ({{ alerts|length }})</h2>
+    <div style="font-size:12px;color:#8E8E93">Hub'ning o'z scheduler'i tomonidan yaratilgan</div>
+  </div>
+  <table class="tbl">
+    <thead><tr>
+      <th>Vaqt</th><th>Server</th><th>Turi</th><th>Daraja</th>
+      <th>Xabar</th><th>Yetkazilgan</th><th>Holat</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for a in alerts %}
+      {% set srv = servers.get(a.server_id) %}
+      <tr>
+        <td style="white-space:nowrap;font-size:12px;color:#8E8E93">
+          {{ a.opened_at.strftime('%d.%m %H:%M') }}
+          {% if a.fired_at %}<br><span style="color:#FF9500">→{{ a.fired_at.strftime('%H:%M') }}</span>{% endif %}
+        </td>
+        <td>{{ srv.name if srv else '—' }}</td>
+        <td><span class="bdg bdg-inf">{{ a.monitor_type }}</span><br>
+            <code style="font-size:11px;color:#8E8E93">{{ a.key }}</code></td>
+        <td>{% if a.level == 'critical' %}<span class="bdg bdg-dan">{{ a.level }}</span>
+            {% elif a.level == 'warning' %}<span class="bdg bdg-wrn">{{ a.level }}</span>
+            {% else %}<span class="bdg bdg-inf">{{ a.level }}</span>{% endif %}</td>
+        <td style="font-size:13px">{{ a.message[:200]|safe if a.message else '' }}</td>
+        <td style="font-size:11.5px">
+          {% if a.delivered_chat_id %}
+            <code>{{ a.delivered_chat_id }}</code>
+            <div style="color:#8E8E93">bot {{ a.delivered_via_bot }}</div>
+          {% else %}<span style="color:#8E8E93">—</span>{% endif %}
+        </td>
+        <td>
+          {% if a.resolved_at %}<span class="bdg bdg-suc">tiklandi</span>
+          {% elif a.acked_at %}<span class="bdg bdg-wrn">acked</span>
+          {% elif a.fired %}<span class="bdg bdg-dan">ochiq</span>
+          {% else %}<span class="bdg bdg-neu">kuzatilmoqda ({{ a.consecutive_count }}/2)</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if a.fired and not a.acked_at and not a.resolved_at %}
+          <form method="post" action="/alerts/{{ a.id }}/ack" style="display:inline">
+            <button class="btn btn-sec btn-sm" title="Acknowledge"><i class="bi bi-check2"></i></button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" style="text-align:center;color:#8E8E93;padding:30px">
+        Hozircha alert yo'q. Hub har 60 soniyada serverlar holatini tekshiradi —
+        muammo aniqlansa bu yerda paydo bo'ladi.
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div style="margin-top:14px;font-size:12px;color:#8E8E93">
+  💡 <strong>Eslatma:</strong> "Kuzatilmoqda" — Hub muammoni 1 marta ko'rdi, ikkinchi marta tasdiqlanguncha kutadi (anti-flapping).
+  "Ochiq" — Telegram'ga yuborilgan. "Tiklandi" — muammo bartaraf etilgan.
+</div>
+{% endblock %}

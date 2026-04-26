@@ -1,0 +1,51 @@
+# monitor-agent example configuration.
+# Copy to config.yml and edit for THIS server.
+
+server_name: my-server   # arbitrary unique name
+
+# ── HTTP healthchecks for projects on this host ──────────────────────────────
+endpoints:
+  - name: My App
+    url: http://172.17.0.1:5000/health      # Docker bridge → host:5000
+    expect: 200                              # status code (or list e.g. [200, 301])
+  - name: Database UI
+    url: http://172.17.0.1:8080/
+    expect: [200, 301, 302]
+
+# ── Databases — Postgres via docker exec, sqlite via file path ───────────────
+databases:
+  - name: app
+    type: postgres
+    container: app-postgres                  # docker container name
+    db: app_db
+    user: app_user
+  - name: cache
+    type: sqlite
+    path: /opt/myapp/data/cache.db           # host path (mounted as /host/...)
+
+# ── Daily backups ────────────────────────────────────────────────────────────
+backups:
+  - name: app
+    type: pg_dump                            # docker exec → pg_dump → gzip
+    container: app-postgres
+    db: app_db
+    user: app_user
+  - name: cache
+    type: sqlite_copy                        # gzip-compress sqlite file
+    path: /opt/myapp/data/cache.db
+  # - name: uploads
+  #   type: directory                        # tar.gz a directory
+  #   path: /opt/myapp/uploads
+
+backup_retention_days: 30
+
+# ── SSL certificate monitoring ───────────────────────────────────────────────
+domains: []
+# - {host: example.com, port: 443}
+# - {host: api.example.com, port: 443}
+
+# ── Alert thresholds ─────────────────────────────────────────────────────────
+thresholds:
+  disk_pct: 80
+  mem_pct: 85
+  load_1m: 5.0

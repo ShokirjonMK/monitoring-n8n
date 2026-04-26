@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block guest %}
+<div style="margin:0 auto;width:360px;padding:80px 20px;font-family:inherit">
+  <div style="text-align:center;margin-bottom:30px">
+    <div style="width:60px;height:60px;background:#007AFF;border-radius:14px;
+                display:inline-flex;align-items:center;justify-content:center;font-size:30px">🛰</div>
+    <h1 style="margin:14px 0 4px;font-size:22px;letter-spacing:-.4px">Monitor Hub</h1>
+    <div style="color:#8E8E93;font-size:13px">Server fleet boshqaruvi</div>
+  </div>
+  <form method="post" action="/login" class="card" style="background:#fff;padding:28px;border-radius:14px">
+    {% if error %}<div class="bdg bdg-dan" style="display:block;margin-bottom:14px;padding:8px 12px">
+      Login yoki parol noto'g'ri</div>{% endif %}
+    <div class="form-grp">
+      <label class="lbl">Login</label>
+      <input class="inp" name="username" autofocus required>
+    </div>
+    <div class="form-grp">
+      <label class="lbl">Parol</label>
+      <input class="inp" type="password" name="password" required>
+    </div>
+    <button class="btn btn-pri" style="width:100%;justify-content:center;margin-top:8px" type="submit">
+      <i class="bi bi-box-arrow-in-right"></i> Kirish
+    </button>
+  </form>
+</div>
+{% endblock %}

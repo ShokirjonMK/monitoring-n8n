@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>{% block title %}Monitor Hub{% endblock %}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif;
+       background:#F2F2F7;color:#1C1C1E;margin:0;min-height:100vh;display:flex}
+  a{color:#007AFF;text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  /* Sidebar */
+  .sb{width:230px;background:#fff;border-right:1px solid rgba(60,60,67,.10);
+      display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
+  .sb-h{padding:24px 18px 18px;border-bottom:1px solid rgba(60,60,67,.08)}
+  .sb-h h1{font-size:16px;margin:0;letter-spacing:-.3px}
+  .sb-h .sub{font-size:11px;color:#8E8E93;margin-top:3px}
+  .sb-nav{padding:10px 8px;flex:1;overflow:auto}
+  .sb-section{font-size:11px;font-weight:600;text-transform:uppercase;color:#8E8E93;
+              padding:10px 12px 4px;letter-spacing:.5px}
+  .sb-link{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;
+           color:#1C1C1E;font-size:14px;font-weight:500;margin-bottom:1px;text-decoration:none}
+  .sb-link i{font-size:16px;color:#8E8E93;width:18px;text-align:center}
+  .sb-link:hover{background:rgba(0,122,255,.06);color:#007AFF;text-decoration:none}
+  .sb-link:hover i{color:#007AFF}
+  .sb-link.active{background:rgba(0,122,255,.10);color:#007AFF;font-weight:600}
+  .sb-link.active i{color:#007AFF}
+  .sb-foot{padding:14px 16px;border-top:1px solid rgba(60,60,67,.08)}
+  .sb-user{display:flex;align-items:center;gap:10px;font-size:13px;margin-bottom:8px}
+  .sb-av{width:30px;height:30px;border-radius:50%;background:#007AFF;color:#fff;
+         display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+  .sb-out{font-size:13px;color:#FF3B30}
+
+  /* Main */
+  .main{margin-left:230px;flex:1;min-height:100vh}
+  .top{background:#fff;height:56px;display:flex;align-items:center;justify-content:space-between;
+       padding:0 24px;border-bottom:1px solid rgba(60,60,67,.10);position:sticky;top:0;z-index:50}
+  .top h1{margin:0;font-size:17px;font-weight:700}
+  .body{padding:24px}
+
+  /* Cards */
+  .card{background:#fff;border-radius:12px;border:1px solid rgba(60,60,67,.06);
+        box-shadow:0 1px 3px rgba(0,0,0,.04);padding:18px}
+  .card-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .card-h h2{margin:0;font-size:15px;font-weight:700}
+
+  /* Buttons */
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:18px;
+       border:none;cursor:pointer;font-size:13.5px;font-weight:600;
+       transition:opacity .15s,transform .1s;text-decoration:none;font-family:inherit}
+  .btn:hover{text-decoration:none}
+  .btn:active{transform:scale(.98)}
+  .btn-pri{background:#007AFF;color:#fff}
+  .btn-pri:hover{background:#0068d6;color:#fff}
+  .btn-sec{background:rgba(60,60,67,.08);color:#1C1C1E}
+  .btn-sec:hover{background:rgba(60,60,67,.14);color:#1C1C1E}
+  .btn-dan{background:#FF3B30;color:#fff}
+  .btn-dan:hover{background:#d93028;color:#fff}
+  .btn-suc{background:#34C759;color:#fff}
+  .btn-sm{padding:5px 12px;font-size:12px}
+
+  /* Forms */
+  .form-grp{margin-bottom:14px}
+  .lbl{display:block;font-size:13px;font-weight:600;color:#3A3A3C;margin-bottom:5px}
+  .inp,.txt,.sel{width:100%;border-radius:9px;border:1px solid rgba(60,60,67,.18);
+                 background:#FAFAFA;padding:9px 12px;font-size:14px;font-family:inherit}
+  .inp:focus,.txt:focus,.sel:focus{outline:none;border-color:#007AFF;
+                                   box-shadow:0 0 0 3px rgba(0,122,255,.12);background:#fff}
+  .txt{min-height:80px;resize:vertical;font-family:'SF Mono',Menlo,Monaco,monospace;font-size:13px}
+  .hlp{font-size:11.5px;color:#8E8E93;margin-top:3px}
+
+  /* Badges */
+  .bdg{display:inline-block;padding:2px 9px;border-radius:18px;font-size:11px;font-weight:600}
+  .bdg-suc{background:rgba(52,199,89,.14);color:#248A3D}
+  .bdg-dan{background:rgba(255,59,48,.14);color:#d93028}
+  .bdg-wrn{background:rgba(255,149,0,.14);color:#c27400}
+  .bdg-inf{background:rgba(0,122,255,.14);color:#0055b3}
+  .bdg-neu{background:rgba(60,60,67,.10);color:#3a3a3c}
+
+  /* Tables */
+  .tbl{width:100%;border-collapse:collapse;font-size:13px}
+  .tbl th{background:#FAFAFA;text-align:left;padding:11px 14px;font-size:11px;
+          font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#8E8E93;
+          border-bottom:1px solid rgba(60,60,67,.10)}
+  .tbl td{padding:11px 14px;border-bottom:1px solid rgba(60,60,67,.06)}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl tr:hover td{background:rgba(0,122,255,.02)}
+
+  /* Stats */
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+  .stat{background:#fff;border-radius:10px;padding:14px;border:1px solid rgba(60,60,67,.06)}
+  .stat .n{font-size:24px;font-weight:700;letter-spacing:-.5px}
+  .stat .l{font-size:12px;color:#8E8E93;text-transform:uppercase;letter-spacing:.4px;margin-top:3px}
+
+  /* Server card */
+  .srv-card{background:#fff;border-radius:12px;border:1px solid rgba(60,60,67,.06);
+            padding:18px;margin-bottom:12px}
+  .srv-card.dn{border-color:rgba(255,59,48,.30);background:rgba(255,59,48,.03)}
+
+  /* iOS toggle */
+  .tgl{position:relative;display:inline-block;width:46px;height:28px;cursor:pointer}
+  .tgl input{opacity:0;width:0;height:0}
+  .tgl-s{position:absolute;inset:0;background:rgba(60,60,67,.20);border-radius:28px;transition:.2s}
+  .tgl-s::before{content:'';position:absolute;left:2px;top:2px;width:24px;height:24px;
+                 background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+  .tgl input:checked + .tgl-s{background:#34C759}
+  .tgl input:checked + .tgl-s::before{transform:translateX(18px)}
+
+  @media(max-width:768px){
+    .sb{transform:translateX(-100%);transition:.25s;z-index:200}
+    .sb.open{transform:translateX(0)}
+    .main{margin-left:0}
+    .body{padding:14px}
+    .top{padding:0 14px}
+  }
+
+  pre{background:#1C1C1E;color:#E5E5EA;border-radius:8px;padding:12px;
+      overflow:auto;font-size:12px;margin:0}
+</style>
+</head>
+<body>
+
+{% if request.session.get('user') %}
+<aside class="sb" id="sb">
+  <div class="sb-h">
+    <h1>🛰 Monitor Hub</h1>
+    <div class="sub">Server fleet boshqaruvi</div>
+  </div>
+  <nav class="sb-nav">
+    <div class="sb-section">Asosiy</div>
+    <a href="/" class="sb-link {% block n_dash %}{% endblock %}"><i class="bi bi-grid"></i>Dashboard</a>
+    <a href="/servers" class="sb-link {% block n_srv %}{% endblock %}"><i class="bi bi-hdd-rack"></i>Serverlar</a>
+    <a href="/monitors" class="sb-link {% block n_mon %}{% endblock %}"><i class="bi bi-activity"></i>Monitorlar</a>
+    <a href="/alerts" class="sb-link {% block n_alt %}{% endblock %}"><i class="bi bi-bell"></i>Alertlar</a>
+
+    <div class="sb-section" style="margin-top:8px">Boshqa</div>
+    <a href="/backups" class="sb-link {% block n_bkp %}{% endblock %}"><i class="bi bi-archive"></i>Backuplar</a>
+    <a href="/domains" class="sb-link {% block n_dom %}{% endblock %}"><i class="bi bi-shield-lock"></i>SSL/Domains</a>
+    <a href="/ai" class="sb-link {% block n_ai %}{% endblock %}"><i class="bi bi-stars"></i>AI Yordamchi</a>
+
+    <div class="sb-section" style="margin-top:8px">Tizim</div>
+    <a href="/settings" class="sb-link {% block n_set %}{% endblock %}"><i class="bi bi-gear"></i>Sozlamalar</a>
+  </nav>
+  <div class="sb-foot">
+    <div class="sb-user">
+      <div class="sb-av">{{ (request.session.get('user', '?')[0]|upper) }}</div>
+      <div>
+        <div style="font-weight:600">{{ request.session.get('user') }}</div>
+        <div style="font-size:11px;color:#8E8E93">Admin</div>
+      </div>
+    </div>
+    <a href="/logout" class="sb-out"><i class="bi bi-box-arrow-left"></i> Chiqish</a>
+  </div>
+</aside>
+
+<div class="main">
+  <div class="top">
+    <h1>{{ self.title() }}</h1>
+    <div>{% block top_actions %}{% endblock %}</div>
+  </div>
+  <div class="body">{% block content %}{% endblock %}</div>
+</div>
+{% else %}
+{% block guest %}{% endblock %}
+{% endif %}
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

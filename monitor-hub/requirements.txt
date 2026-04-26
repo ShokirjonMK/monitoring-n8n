@@ -1,0 +1,9 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+httpx==0.28.1
+jinja2==3.1.4
+python-multipart==0.0.20
+itsdangerous==2.2.0
+sqlmodel==0.0.22
+anthropic==0.42.0
+pyyaml==6.0.2
