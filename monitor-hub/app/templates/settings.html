@@ -3,23 +3,171 @@
 {% block n_set %}active{% endblock %}
 
 {% block content %}
-<div style="max-width:760px">
+<div style="max-width:880px">
+
   {% if saved %}
     <div class="bdg bdg-suc" style="display:block;padding:10px 14px;margin-bottom:14px">
-      ✓ Saqlandi
+      ✓ Saqlandi ({{ saved }})
     </div>
   {% endif %}
 
-  <form method="post" action="/settings/ai" class="card">
-    <div class="card-h"><h2><i class="bi bi-stars"></i> AI (Claude) sozlamalari</h2></div>
+  <!-- ════════════════ TELEGRAM ══════════════════ -->
+  <form method="post" action="/settings/telegram" class="card" style="margin-bottom:18px">
+    <div class="card-h">
+      <h2><i class="bi bi-telegram"></i> Telegram (default kanallar)</h2>
+      <button type="button" class="btn btn-sec btn-sm" onclick="discoverChats()">
+        <i class="bi bi-search"></i> Kanallarni topish
+      </button>
+    </div>
+
+    <div class="bdg bdg-inf" style="display:block;padding:10px 14px;margin-bottom:12px;font-size:12.5px">
+      <i class="bi bi-info-circle"></i>
+      Hozirgi yo'naltirilish:
+      <b>Alert</b> → <code>{{ current_alert.chat_id or '—' }}</code>
+      ({{ current_alert.label }})
+      &nbsp;·&nbsp;
+      <b>Report</b> → <code>{{ current_report.chat_id or '—' }}</code>
+      ({{ current_report.label }})
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl">Bot token</label>
+      <input class="inp" name="telegram_bot_token" type="password"
+             placeholder="{% if hub.telegram_bot_token %}{{ hub.telegram_bot_token[:8] }}*** (mavjud — bo'sh qoldirilsa saqlanadi){% else %}Env'dan o'qilmoqda — yangi qiymat kiriting (ixtiyoriy){% endif %}"
+             style="font-family:monospace;font-size:12.5px">
+      <div class="hlp">Bo'sh qoldirilsa <code>.env</code> dagi <code>TELEGRAM_BOT_TOKEN</code> ishlatadi.</div>
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl">Default chat ID (barcha xabarlar default)</label>
+      <input class="inp" name="default_chat_id" value="{{ hub.default_chat_id or '' }}"
+             placeholder="-1003912703086 (kanal/guruh) yoki 813225336 (user)">
+      <div class="hlp">Bu yerga reportlar va alertlar default tarzda yuboriladi.
+        Kanal ID lari <code>-100...</code> bilan boshlanadi.</div>
+    </div>
+
+    <hr style="border:none;border-top:1px solid rgba(60,60,67,.10);margin:14px 0">
+    <div style="font-size:12px;color:#8E8E93;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">
+      Override (ixtiyoriy — alohida kanallar)
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl"><span style="color:#FF3B30">🔴</span> Alert chat ID</label>
+      <input class="inp" name="alert_chat_id" value="{{ hub.alert_chat_id or '' }}"
+             placeholder="Bo'sh qoldirilsa default chat ishlatadi">
+      <div class="hlp">Faqat real muammolar (container down, endpoint timeout, threshold buzilishi)</div>
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl"><span style="color:#34C759">📊</span> Report chat ID</label>
+      <input class="inp" name="report_chat_id" value="{{ hub.report_chat_id or '' }}"
+             placeholder="Bo'sh qoldirilsa default chat ishlatadi">
+      <div class="hlp">Kunlik digest, backup natijasi, info xabarlar</div>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
+      <button type="button" class="btn btn-sec btn-sm" onclick="testDefaultChannels()">
+        <i class="bi bi-send"></i> Default kanallarni sinash
+      </button>
+      <button class="btn btn-pri" type="submit"><i class="bi bi-floppy-disk"></i> Saqlash</button>
+    </div>
+  </form>
+
+  <!-- Discovery results modal-ish panel -->
+  <div id="discoverPanel" class="card" style="display:none;margin-bottom:18px">
+    <div class="card-h"><h2><i class="bi bi-list"></i> Topilgan kanallar</h2>
+      <button class="btn btn-sec btn-sm" onclick="document.getElementById('discoverPanel').style.display='none'"><i class="bi bi-x"></i></button></div>
+    <table class="tbl">
+      <thead><tr><th>Nom</th><th>Turi</th><th>Chat ID</th><th></th></tr></thead>
+      <tbody id="discoverBody"></tbody>
+    </table>
+    <div class="hlp" style="margin-top:8px">Click "Belgilash" to copy ID into a field.</div>
+  </div>
+
+  <!-- ════════════════ SCHEDULE ══════════════════ -->
+  <form method="post" action="/settings/schedule" class="card" style="margin-bottom:18px">
+    <div class="card-h"><h2><i class="bi bi-clock"></i> Avtomat scheduler</h2></div>
+    <div class="hlp" style="margin-bottom:12px">
+      Saqlash bilan scheduler avtomat qayta yuklanadi.
+    </div>
+
+    <h3 style="font-size:13px;color:#3A3A3C;margin:0 0 8px">Davomli (interval) tasklar</h3>
+    <div style="display:grid;grid-template-columns:1fr auto 90px;gap:10px;align-items:center;margin-bottom:8px">
+      <div>
+        <strong>Watchdog</strong> — container/endpoint/db tekshiruv
+        <div class="hlp">Anti-flapping: <code>confirm_ticks</code> marta ketma-ket bad bo'lganda alert</div>
+      </div>
+      <label class="tgl">
+        <input type="checkbox" name="enable_watchdog" {% if hub.enable_watchdog %}checked{% endif %}>
+        <span class="tgl-s"></span>
+      </label>
+      <input class="inp" type="number" name="watchdog_interval_seconds" value="{{ hub.watchdog_interval_seconds }}"
+             min="30" max="3600" title="sekund"> </div>
+    <div style="display:grid;grid-template-columns:1fr auto 90px;gap:10px;align-items:center;margin-bottom:14px">
+      <div>
+        <strong>Resource alert</strong> — disk/RAM/load threshold
+      </div>
+      <label class="tgl">
+        <input type="checkbox" name="enable_resource" {% if hub.enable_resource %}checked{% endif %}>
+        <span class="tgl-s"></span>
+      </label>
+      <input class="inp" type="number" name="resource_interval_seconds" value="{{ hub.resource_interval_seconds }}"
+             min="60" max="3600" title="sekund">
+    </div>
+
+    <div class="form-grp" style="display:grid;grid-template-columns:1fr 90px;gap:10px;align-items:center">
+      <label class="lbl" style="margin:0">Confirm ticks (anti-flapping)</label>
+      <input class="inp" type="number" name="confirm_ticks" value="{{ hub.confirm_ticks }}" min="1" max="10">
+    </div>
+
+    <hr style="border:none;border-top:1px solid rgba(60,60,67,.10);margin:18px 0 14px">
+    <h3 style="font-size:13px;color:#3A3A3C;margin:0 0 10px">Kunlik tasklar (Asia/Tashkent vaqti)</h3>
+
+    <div style="display:grid;grid-template-columns:1fr auto 70px 60px;gap:10px;align-items:center;margin-bottom:8px">
+      <div><strong>Backup</strong> — barcha bazalar dump → Telegram</div>
+      <label class="tgl">
+        <input type="checkbox" name="enable_backup_daily" {% if hub.enable_backup_daily %}checked{% endif %}>
+        <span class="tgl-s"></span>
+      </label>
+      <input class="inp" type="number" name="backup_hour" value="{{ hub.backup_hour }}" min="0" max="23" title="soat">
+      <input class="inp" type="number" name="backup_minute" value="{{ hub.backup_minute }}" min="0" max="59" title="daq">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr auto 70px 60px;gap:10px;align-items:center;margin-bottom:8px">
+      <div><strong>SSL tekshiruv</strong> — sertifikat tugashi</div>
+      <label class="tgl">
+        <input type="checkbox" name="enable_ssl_daily" {% if hub.enable_ssl_daily %}checked{% endif %}>
+        <span class="tgl-s"></span>
+      </label>
+      <input class="inp" type="number" name="ssl_hour" value="{{ hub.ssl_hour }}" min="0" max="23">
+      <input class="inp" type="number" name="ssl_minute" value="{{ hub.ssl_minute }}" min="0" max="59">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr auto 70px 60px;gap:10px;align-items:center;margin-bottom:14px">
+      <div><strong>Daily digest</strong> — server holatlari hisoboti</div>
+      <label class="tgl">
+        <input type="checkbox" name="enable_daily_digest" {% if hub.enable_daily_digest %}checked{% endif %}>
+        <span class="tgl-s"></span>
+      </label>
+      <input class="inp" type="number" name="digest_hour" value="{{ hub.digest_hour }}" min="0" max="23">
+      <input class="inp" type="number" name="digest_minute" value="{{ hub.digest_minute }}" min="0" max="59">
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:8px">
+      <button class="btn btn-pri" type="submit"><i class="bi bi-floppy-disk"></i> Saqlash + scheduler restart</button>
+    </div>
+  </form>
+
+  <!-- ════════════════ AI ══════════════════ -->
+  <form method="post" action="/settings/ai" class="card" style="margin-bottom:18px">
+    <div class="card-h"><h2><i class="bi bi-stars"></i> AI (Claude)</h2></div>
 
     <div class="form-grp">
       <label class="lbl">Anthropic API kalit</label>
       <input class="inp" name="api_key" type="password"
-             placeholder="{% if ai.api_key %}{{ ai.api_key[:8] }}*** (mavjud — bo'sh qoldirsangiz saqlanadi){% else %}sk-ant-...{% endif %}">
+             placeholder="{% if ai.api_key %}{{ ai.api_key[:8] }}*** (mavjud — bo'sh qoldirilsa saqlanadi){% else %}sk-ant-...{% endif %}">
       <div class="hlp">
-        <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a> dan oling.
-        Bo'sh qoldirsangiz, hozirgi qiymat saqlanadi.
+        <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>
       </div>
     </div>
 
@@ -35,7 +183,6 @@
     <div class="form-grp">
       <label class="lbl">System prompt</label>
       <textarea class="inp txt" name="system_prompt" rows="4">{{ ai.system_prompt }}</textarea>
-      <div class="hlp">Claude'ning rolini va uslubini belgilaydi.</div>
     </div>
 
     <div class="form-grp" style="display:flex;align-items:center;justify-content:space-between">
@@ -49,21 +196,60 @@
       </label>
     </div>
 
-    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+    <div style="display:flex;justify-content:flex-end">
       <button class="btn btn-pri" type="submit"><i class="bi bi-floppy-disk"></i> Saqlash</button>
     </div>
   </form>
 
-  <div class="card" style="margin-top:14px">
-    <div class="card-h"><h2><i class="bi bi-info-circle"></i> Tizim ma'lumoti</h2></div>
+  <!-- ════════════════ Tizim ══════════════════ -->
+  <div class="card">
+    <div class="card-h"><h2><i class="bi bi-info-circle"></i> Tizim</h2></div>
     <table class="tbl">
       <tbody>
         <tr><td><strong>Hub URL</strong></td><td><code>http://86.48.3.80:9991</code></td></tr>
         <tr><td><strong>Agent default port</strong></td><td><code>9990</code></td></tr>
         <tr><td><strong>n8n URL</strong></td><td><a href="http://86.48.3.80:5678" target="_blank">86.48.3.80:5678</a></td></tr>
-        <tr><td><strong>Telegram bot</strong></td><td>@mkdevbackupbot</td></tr>
+        <tr><td><strong>GitHub</strong></td><td><a href="https://github.com/ShokirjonMK/monitoring-n8n" target="_blank">ShokirjonMK/monitoring-n8n</a></td></tr>
       </tbody>
     </table>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function discoverChats() {
+  const r = await fetch('/settings/discover-chats', {method: 'POST'});
+  const j = await r.json();
+  const body = document.getElementById('discoverBody');
+  body.innerHTML = '';
+  if (!j.chats || !j.chats.length) {
+    body.innerHTML = '<tr><td colspan="4" style="color:#8E8E93">Hech qanday chat topilmadi. Bot guruh/kanalga qo\'shilganmi?</td></tr>';
+  } else {
+    for (const c of j.chats) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><strong>${c.title || '—'}</strong></td>
+        <td><span class="bdg bdg-inf">${c.type}</span></td>
+        <td><code style="font-size:12px">${c.id}</code></td>
+        <td><button type="button" class="btn btn-sec btn-sm" onclick="copyToField('${c.id}')">Belgilash</button></td>`;
+      body.appendChild(tr);
+    }
+  }
+  document.getElementById('discoverPanel').style.display = 'block';
+}
+
+function copyToField(id) {
+  // Set into default chat field by default
+  const f = document.querySelector('input[name="default_chat_id"]');
+  if (f) { f.value = id; f.focus(); }
+}
+
+async function testDefaultChannels() {
+  const r = await fetch('/settings/test-default-channels', {method: 'POST'});
+  const j = await r.json();
+  let msg = `Alert kanali (${j.alert.channel}, chat ${j.alert.chat_id}): ${j.alert.ok ? '✓' : '✗ ' + (j.alert.error || '')}\n`;
+  msg += `Report kanali (${j.report.channel}, chat ${j.report.chat_id}): ${j.report.ok ? '✓' : '✗ ' + (j.report.error || '')}`;
+  alert(msg);
+}
+</script>
 {% endblock %}

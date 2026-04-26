@@ -109,6 +109,39 @@ class AISettings(SQLModel, table=True):
     )
 
 
+class HubSettings(SQLModel, table=True):
+    """Singleton — id always = 1. Admin-managed runtime settings (Telegram, schedule)."""
+    id: int = Field(default=1, primary_key=True)
+
+    # ── Telegram defaults (override env when set) ─────────────────────────────
+    telegram_bot_token: Optional[str] = None              # if blank → env TELEGRAM_BOT_TOKEN
+    default_chat_id: Optional[str] = None                 # if blank → env TELEGRAM_CHAT_ID
+    alert_chat_id: Optional[str] = None                   # if blank → falls back to default
+    report_chat_id: Optional[str] = None                  # if blank → falls back to default
+
+    # ── Scheduler tuning ──────────────────────────────────────────────────────
+    watchdog_interval_seconds: int = 60
+    resource_interval_seconds: int = 300
+    confirm_ticks: int = 2
+
+    # Daily times (server-local hh:mm) — applied at next restart
+    backup_hour: int = 2
+    backup_minute: int = 0
+    ssl_hour: int = 6
+    ssl_minute: int = 0
+    digest_hour: int = 8
+    digest_minute: int = 0
+
+    # ── Toggles ───────────────────────────────────────────────────────────────
+    enable_watchdog: bool = True
+    enable_resource: bool = True
+    enable_ssl_daily: bool = True
+    enable_backup_daily: bool = True
+    enable_daily_digest: bool = True
+
+    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
 class ChatMessage(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     role: str                              # user | assistant
@@ -154,6 +187,9 @@ def init_db():
     with Session(engine) as s:
         if not s.exec(select(AISettings).where(AISettings.id == 1)).first():
             s.add(AISettings(id=1))
+            s.commit()
+        if not s.exec(select(HubSettings).where(HubSettings.id == 1)).first():
+            s.add(HubSettings(id=1))
             s.commit()
 
 

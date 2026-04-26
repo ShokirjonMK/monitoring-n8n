@@ -37,10 +37,22 @@ from . import notify as NOTIFY
 
 log = logging.getLogger("hub.sched")
 
-WATCHDOG_INTERVAL = int(os.getenv("WATCHDOG_INTERVAL", "60"))      # seconds
-RESOURCE_INTERVAL = int(os.getenv("RESOURCE_INTERVAL", "300"))    # seconds
-CONFIRM_TICKS = int(os.getenv("CONFIRM_TICKS", "2"))              # ticks before firing alert
 DEBOUNCE_RESOURCE_SEC = int(os.getenv("DEBOUNCE_RESOURCE_SEC", "1800"))  # 30 min
+
+
+def _hub_settings() -> DB.HubSettings | None:
+    try:
+        with Session(DB.engine) as s:
+            return s.exec(select(DB.HubSettings).where(DB.HubSettings.id == 1)).first()
+    except Exception:
+        return None
+
+
+def _confirm_ticks() -> int:
+    h = _hub_settings()
+    if h and h.confirm_ticks:
+        return h.confirm_ticks
+    return int(os.getenv("CONFIRM_TICKS", "2"))
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -64,7 +76,7 @@ async def _maybe_fire(s: Session, srv: DB.Server, alert: DB.AlertHistory, format
     """Decide whether to actually send the Telegram message."""
     if alert.fired:
         return  # already fired
-    if alert.consecutive_count < CONFIRM_TICKS:
+    if alert.consecutive_count < _confirm_ticks():
         return  # not yet confirmed
     if _is_in_maintenance(srv):
         log.info(f"[{srv.name}] maintenance — suppressing alert {alert.key}")
@@ -453,15 +465,33 @@ class Scheduler:
         if self._running:
             return
         self._running = True
+        h = _hub_settings()
+        wd_int = (h.watchdog_interval_seconds if h else 60) or 60
+        rs_int = (h.resource_interval_seconds if h else 300) or 300
+        b_h, b_m = (h.backup_hour, h.backup_minute) if h else (2, 0)
+        s_h, s_m = (h.ssl_hour, h.ssl_minute) if h else (6, 0)
+        d_h, d_m = (h.digest_hour, h.digest_minute) if h else (8, 0)
+
         loop = asyncio.get_event_loop()
-        self._tasks = [
-            loop.create_task(self._loop("watchdog", WATCHDOG_INTERVAL, watchdog_tick)),
-            loop.create_task(self._loop("resource", RESOURCE_INTERVAL, resource_tick)),
-            loop.create_task(self._cron("ssl-daily", 6, 0, ssl_tick)),
-            loop.create_task(self._cron("backup-daily", 2, 0, backup_tick)),
-            loop.create_task(self._cron("daily-digest", 8, 0, daily_digest)),
-        ]
-        log.info(f"Scheduler started: watchdog={WATCHDOG_INTERVAL}s resource={RESOURCE_INTERVAL}s")
+        tasks = []
+        if not h or h.enable_watchdog:
+            tasks.append(loop.create_task(self._loop("watchdog", wd_int, watchdog_tick)))
+        if not h or h.enable_resource:
+            tasks.append(loop.create_task(self._loop("resource", rs_int, resource_tick)))
+        if not h or h.enable_ssl_daily:
+            tasks.append(loop.create_task(self._cron("ssl-daily", s_h, s_m, ssl_tick)))
+        if not h or h.enable_backup_daily:
+            tasks.append(loop.create_task(self._cron("backup-daily", b_h, b_m, backup_tick)))
+        if not h or h.enable_daily_digest:
+            tasks.append(loop.create_task(self._cron("daily-digest", d_h, d_m, daily_digest)))
+        self._tasks = tasks
+        log.info(f"Scheduler started: watchdog={wd_int}s resource={rs_int}s "
+                 f"backup={b_h:02}:{b_m:02} ssl={s_h:02}:{s_m:02} digest={d_h:02}:{d_m:02}")
+
+    async def restart(self):
+        await self.stop()
+        await asyncio.sleep(0.1)
+        self.start()
 
     async def stop(self):
         self._running = False

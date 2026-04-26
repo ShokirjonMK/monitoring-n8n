@@ -583,8 +583,14 @@ def ai_clear(_=Depends(require_login)):
 def settings_page(request: Request, saved: str = "", _=Depends(require_login)):
     with Session(DB.engine) as s:
         ai = s.exec(select(DB.AISettings).where(DB.AISettings.id == 1)).first()
+        hub = s.exec(select(DB.HubSettings).where(DB.HubSettings.id == 1)).first()
+    # Show currently-resolved channels (so admin sees what fallbacks would do now)
+    alert_ch = NOTIFY.resolve_alert_channel(None)
+    report_ch = NOTIFY.resolve_report_channel(None)
     return templates.TemplateResponse("settings.html", {
-        "request": request, "ai": ai, "saved": saved,
+        "request": request, "ai": ai, "hub": hub, "saved": saved,
+        "current_alert": {"chat_id": alert_ch.chat_id, "bot_id": alert_ch.bot_id, "label": alert_ch.label},
+        "current_report": {"chat_id": report_ch.chat_id, "bot_id": report_ch.bot_id, "label": report_ch.label},
     })
 
 
@@ -606,7 +612,229 @@ def settings_ai_save(
         ai.system_prompt = system_prompt.strip() or ai.system_prompt
         ai.enabled = (enabled == "on")
         s.add(ai); s.commit()
-    return RedirectResponse("/settings?saved=1", 302)
+    return RedirectResponse("/settings?saved=ai", 302)
+
+
+@app.post("/settings/telegram")
+async def settings_telegram_save(
+    request: Request,
+    telegram_bot_token: str = Form(""),
+    default_chat_id: str = Form(""),
+    alert_chat_id: str = Form(""),
+    report_chat_id: str = Form(""),
+    _=Depends(require_login),
+):
+    with Session(DB.engine) as s:
+        hub = s.exec(select(DB.HubSettings).where(DB.HubSettings.id == 1)).first()
+        # Preserve existing token if blank (so we don't accidentally clear it)
+        if telegram_bot_token.strip():
+            hub.telegram_bot_token = telegram_bot_token.strip()
+        hub.default_chat_id = default_chat_id.strip() or None
+        hub.alert_chat_id = alert_chat_id.strip() or None
+        hub.report_chat_id = report_chat_id.strip() or None
+        hub.updated_at = datetime.datetime.utcnow()
+        s.add(hub); s.commit()
+    return RedirectResponse("/settings?saved=telegram", 302)
+
+
+@app.post("/settings/schedule")
+async def settings_schedule_save(
+    request: Request,
+    watchdog_interval_seconds: int = Form(60),
+    resource_interval_seconds: int = Form(300),
+    confirm_ticks: int = Form(2),
+    backup_hour: int = Form(2),
+    backup_minute: int = Form(0),
+    ssl_hour: int = Form(6),
+    ssl_minute: int = Form(0),
+    digest_hour: int = Form(8),
+    digest_minute: int = Form(0),
+    enable_watchdog: str = Form("off"),
+    enable_resource: str = Form("off"),
+    enable_ssl_daily: str = Form("off"),
+    enable_backup_daily: str = Form("off"),
+    enable_daily_digest: str = Form("off"),
+    _=Depends(require_login),
+):
+    with Session(DB.engine) as s:
+        hub = s.exec(select(DB.HubSettings).where(DB.HubSettings.id == 1)).first()
+        hub.watchdog_interval_seconds = max(30, min(3600, watchdog_interval_seconds))
+        hub.resource_interval_seconds = max(60, min(3600, resource_interval_seconds))
+        hub.confirm_ticks = max(1, min(10, confirm_ticks))
+        hub.backup_hour = max(0, min(23, backup_hour))
+        hub.backup_minute = max(0, min(59, backup_minute))
+        hub.ssl_hour = max(0, min(23, ssl_hour))
+        hub.ssl_minute = max(0, min(59, ssl_minute))
+        hub.digest_hour = max(0, min(23, digest_hour))
+        hub.digest_minute = max(0, min(59, digest_minute))
+        hub.enable_watchdog = (enable_watchdog == "on")
+        hub.enable_resource = (enable_resource == "on")
+        hub.enable_ssl_daily = (enable_ssl_daily == "on")
+        hub.enable_backup_daily = (enable_backup_daily == "on")
+        hub.enable_daily_digest = (enable_daily_digest == "on")
+        hub.updated_at = datetime.datetime.utcnow()
+        s.add(hub); s.commit()
+
+    # Restart scheduler to pick up new settings
+    try:
+        await scheduler.restart()
+    except Exception as e:
+        log.error(f"scheduler restart failed: {e}")
+    return RedirectResponse("/settings?saved=schedule", 302)
+
+
+@app.post("/settings/discover-chats")
+async def settings_discover_chats(_=Depends(require_login)):
+    """Call Telegram getUpdates and return chats the bot has interacted with."""
+    chats = await NOTIFY.discover_chats()
+    return {"chats": chats}
+
+
+@app.post("/settings/test-default-channels")
+async def settings_test_default_channels(_=Depends(require_login)):
+    """Send test messages to the resolved default alert/report channels."""
+    alert_ch = NOTIFY.resolve_alert_channel(None)
+    report_ch = NOTIFY.resolve_report_channel(None)
+    a = await NOTIFY.send_message(alert_ch,
+        f"🧪 <b>Default ALERT kanal sinovi</b>\nbot=<code>{alert_ch.bot_id}</code> "
+        f"chat=<code>{alert_ch.chat_id}</code>")
+    r = await NOTIFY.send_message(report_ch,
+        f"🧪 <b>Default REPORT kanal sinovi</b>\nbot=<code>{report_ch.bot_id}</code> "
+        f"chat=<code>{report_ch.chat_id}</code>")
+    return {
+        "alert": {"channel": alert_ch.label, "chat_id": alert_ch.chat_id, "ok": a.get("ok"),
+                  "error": a.get("description") or a.get("error")},
+        "report": {"channel": report_ch.label, "chat_id": report_ch.chat_id, "ok": r.get("ok"),
+                   "error": r.get("description") or r.get("error")},
+    }
+
+
+# ─── Manual triggers (from admin panel) ───────────────────────────────────────
+
+@app.post("/triggers/watchdog")
+async def trigger_watchdog(_=Depends(require_login)):
+    from .scheduler import watchdog_tick
+    await watchdog_tick()
+    return {"ok": True, "ran": "watchdog"}
+
+
+@app.post("/triggers/resource")
+async def trigger_resource(_=Depends(require_login)):
+    from .scheduler import resource_tick
+    await resource_tick()
+    return {"ok": True, "ran": "resource"}
+
+
+@app.post("/triggers/ssl")
+async def trigger_ssl(_=Depends(require_login)):
+    from .scheduler import ssl_tick
+    await ssl_tick()
+    return {"ok": True, "ran": "ssl"}
+
+
+@app.post("/triggers/backup")
+async def trigger_backup(_=Depends(require_login)):
+    from .scheduler import backup_tick
+    await backup_tick()
+    return {"ok": True, "ran": "backup"}
+
+
+@app.post("/triggers/digest")
+async def trigger_digest(_=Depends(require_login)):
+    from .scheduler import daily_digest
+    await daily_digest()
+    return {"ok": True, "ran": "digest"}
+
+
+@app.post("/triggers/all")
+async def trigger_all(_=Depends(require_login)):
+    """Run watchdog, resource, ssl, backup, digest in sequence."""
+    from .scheduler import watchdog_tick, resource_tick, ssl_tick, backup_tick, daily_digest
+    out = {}
+    for name, fn in [("watchdog", watchdog_tick), ("resource", resource_tick),
+                     ("ssl", ssl_tick), ("backup", backup_tick), ("digest", daily_digest)]:
+        try:
+            await fn()
+            out[name] = "ok"
+        except Exception as e:
+            out[name] = f"error: {e}"
+    return out
+
+
+# ─── Per-server manual triggers ───────────────────────────────────────────────
+
+@app.post("/triggers/server/{sid}/digest")
+async def trigger_server_digest(sid: int, _=Depends(require_login)):
+    """Send daily digest for ONE server only."""
+    with Session(DB.engine) as s:
+        srv = s.exec(select(DB.Server).where(DB.Server.id == sid)).first()
+        if not srv:
+            return JSONResponse({"error": "not found"}, status_code=404)
+    st = await AGENT.status(srv.base_url, srv.agent_token)
+    text = _build_digest_text(srv, st)
+    result = await NOTIFY.send_message(NOTIFY.resolve_report_channel(srv), text)
+    return {"ok": result.get("ok"), "channel": NOTIFY.resolve_report_channel(srv).label}
+
+
+@app.post("/triggers/server/{sid}/backup")
+async def trigger_server_backup(sid: int, _=Depends(require_login)):
+    """Run backup for ONE server, send result + files."""
+    from .scheduler import backup_tick  # using shared logic
+    with Session(DB.engine) as s:
+        srv = s.exec(select(DB.Server).where(DB.Server.id == sid)).first()
+        if not srv:
+            return JSONResponse({"error": "not found"}, status_code=404)
+    result = await AGENT.backup_run(srv.base_url, srv.agent_token)
+    if not result or "_error" in result:
+        return {"ok": False, "error": (result or {}).get("_error", "no response")}
+    # Summary to report channel
+    text = f"📦 <b>Backup</b> — <b>{srv.name}</b> (manual)\n\n"
+    for r in (result.get("results") or []):
+        if r["ok"]:
+            sz = r.get("size_bytes", 0)
+            sz_s = f"{sz/(1024**2):.1f}M" if sz > 1024*1024 else f"{sz//1024}K"
+            text += f"  ✅ {r['name']} — {sz_s}\n"
+        else:
+            text += f"  ❌ {r['name']} — {(r.get('error') or '?')[:80]}\n"
+    await NOTIFY.send_message(NOTIFY.resolve_report_channel(srv), text)
+    return {"ok": True, "results": result.get("results")}
+
+
+def _build_digest_text(srv: "DB.Server", st: dict) -> str:
+    """Used by both scheduled daily_digest and manual triggers."""
+    if not st or "_error" in st:
+        return f"☀️ <b>{srv.name}</b> — kunlik hisobot\n\n🔴 Server javob bermayapti."
+    containers = st.get("containers") or []
+    eps = st.get("endpoints") or []
+    dbs = st.get("databases") or []
+    healthy_c = sum(1 for c in containers
+                    if c["state"] == "running" and c["health"] in ("healthy", "none"))
+    ok_eps = sum(1 for e in eps if e["ok"])
+    ok_dbs = sum(1 for d in dbs if d["ok"])
+    disk = next((d for d in (st.get("disk") or []) if d["mount"] in ("/host", "/")),
+                (st.get("disk") or [{}])[0])
+    mem = st.get("memory") or {}
+    load = st.get("load") or {}
+    uptime_d = (st.get("uptime_seconds") or 0) // 86400
+    text = (
+        f"☀️ <b>{srv.name}</b> — kunlik hisobot\n\n"
+        f"⏱ Uptime: {uptime_d} kun\n"
+        f"📦 Containers: {healthy_c}/{len(containers)}\n"
+        f"🔌 Endpoints: {ok_eps}/{len(eps)}\n"
+        f"💾 Bazalar: {ok_dbs}/{len(dbs)}\n"
+        f"📊 Disk {disk.get('used_pct', 0)}% · "
+        f"RAM {mem.get('used_pct', 0)}% · "
+        f"Load {load.get('1m', 0)}\n"
+    )
+    bad_c = [c for c in containers if c["state"] != "running" or c["health"] == "unhealthy"]
+    bad_e = [e for e in eps if not e["ok"]]
+    bad_d = [d for d in dbs if not d["ok"]]
+    if bad_c or bad_e or bad_d:
+        text += "\n<b>⚠️ Diqqat:</b>\n"
+        for c in bad_c: text += f"  • container {c['name']} — {c['health']}/{c['state']}\n"
+        for e in bad_e: text += f"  • endpoint {e['name']} — {e.get('status', 'ERR')}\n"
+        for d in bad_d: text += f"  • db {d['name']} — {(d.get('error') or '?')[:60]}\n"
+    return text
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

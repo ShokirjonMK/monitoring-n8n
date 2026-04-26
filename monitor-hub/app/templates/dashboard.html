@@ -3,10 +3,31 @@
 {% block n_dash %}active{% endblock %}
 
 {% block top_actions %}
+<div class="dropdown" style="position:relative;display:inline-block">
+  <button class="btn btn-pri btn-sm" onclick="document.getElementById('triggerMenu').classList.toggle('show')">
+    <i class="bi bi-send"></i> Qo'lda yuborish ▾
+  </button>
+  <div id="triggerMenu" class="dropdown-menu" style="display:none;position:absolute;right:0;top:38px;background:#fff;border-radius:10px;box-shadow:0 6px 22px rgba(0,0,0,.12);min-width:240px;padding:6px;z-index:30;border:1px solid rgba(60,60,67,.10)">
+    <button onclick="trigger('all', this)" class="trig-btn"><i class="bi bi-send-arrow-up"></i> Hammasi (5 ta task)</button>
+    <hr style="border:none;border-top:1px solid rgba(60,60,67,.10);margin:4px 0">
+    <button onclick="trigger('watchdog', this)" class="trig-btn"><i class="bi bi-eye"></i> Watchdog (status check)</button>
+    <button onclick="trigger('resource', this)" class="trig-btn"><i class="bi bi-cpu"></i> Resurs threshold</button>
+    <button onclick="trigger('ssl', this)" class="trig-btn"><i class="bi bi-shield-lock"></i> SSL tekshiruv</button>
+    <button onclick="trigger('backup', this)" class="trig-btn"><i class="bi bi-archive"></i> Backup</button>
+    <button onclick="trigger('digest', this)" class="trig-btn"><i class="bi bi-file-text"></i> Daily digest</button>
+  </div>
+</div>
 <button class="btn btn-sec btn-sm" onclick="location.reload()"><i class="bi bi-arrow-clockwise"></i> Yangilash</button>
 {% if ai_enabled %}
 <button class="btn btn-pri btn-sm" onclick="aiSummary()" id="aiBtn"><i class="bi bi-stars"></i> AI xulosa</button>
 {% endif %}
+<style>
+.trig-btn{display:flex;align-items:center;gap:8px;padding:8px 12px;border:none;background:none;border-radius:7px;width:100%;text-align:left;cursor:pointer;font-size:13.5px;font-family:inherit}
+.trig-btn:hover{background:rgba(0,122,255,.08);color:#007AFF}
+.trig-btn:disabled{opacity:.5;cursor:wait}
+.trig-btn i{color:#8E8E93;width:18px}
+.trig-btn:hover i{color:#007AFF}
+</style>
 {% endblock %}
 
 {% block content %}
@@ -130,5 +151,32 @@ async function aiSummary() {
 }
 // Auto-refresh every 60s
 setTimeout(() => location.reload(), 60000);
+
+async function trigger(name, btn) {
+  const txt = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Ishga tushmoqda...';
+  try {
+    const r = await fetch('/triggers/' + name, {method: 'POST'});
+    const j = await r.json();
+    btn.innerHTML = '<i class="bi bi-check-circle"></i> ' + (j.ok ? 'Yuborildi ✓' : 'Bajarildi');
+    setTimeout(() => { btn.disabled = false; btn.innerHTML = txt; }, 2500);
+  } catch (e) {
+    btn.innerHTML = '<i class="bi bi-x-circle"></i> Xato';
+    setTimeout(() => { btn.disabled = false; btn.innerHTML = txt; }, 2500);
+  }
+}
+
+// Close dropdown on outside click
+document.addEventListener('click', function(e) {
+  const menu = document.getElementById('triggerMenu');
+  const dropdownBtn = e.target.closest('.dropdown');
+  if (!dropdownBtn && menu) menu.style.display = 'none';
+});
+document.querySelector('.dropdown > button').addEventListener('click', function(e) {
+  e.stopPropagation();
+  const m = document.getElementById('triggerMenu');
+  m.style.display = m.style.display === 'none' || !m.style.display ? 'block' : 'none';
+});
 </script>
 {% endblock %}

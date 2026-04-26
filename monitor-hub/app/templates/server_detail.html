@@ -4,7 +4,8 @@
 
 {% block top_actions %}
 <a href="/servers/{{ server.id }}/edit" class="btn btn-sec btn-sm"><i class="bi bi-pencil"></i> Tahrirlash</a>
-<button class="btn btn-pri btn-sm" onclick="runBackup()"><i class="bi bi-archive"></i> Backup</button>
+<button class="btn btn-sec btn-sm" onclick="sendDigest()" id="digestBtn"><i class="bi bi-file-text"></i> Digest yuborish</button>
+<button class="btn btn-pri btn-sm" onclick="runBackup()" id="backupBtn"><i class="bi bi-archive"></i> Backup yuborish</button>
 {% endblock %}
 
 {% block content %}
@@ -132,11 +133,30 @@
 {% block scripts %}
 <script>
 async function runBackup() {
-  if (!confirm('Backup hozir ishga tushirilsinmi?')) return;
-  const r = await fetch('/backups/run/{{ server.id }}', {method: 'POST'});
-  const j = await r.json();
-  alert('Backup natijasi: ' + JSON.stringify(j.results || j, null, 2));
-  location.reload();
+  if (!confirm('Backup hozir ishga tushirilsinmi (Telegram\'ga yuboriladi)?')) return;
+  const btn = document.getElementById('backupBtn');
+  btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> ...';
+  try {
+    const r = await fetch('/triggers/server/{{ server.id }}/backup', {method: 'POST'});
+    const j = await r.json();
+    alert('Natija:\n' + JSON.stringify(j.results || j, null, 2));
+    location.reload();
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-archive"></i> Backup yuborish';
+  }
+}
+async function sendDigest() {
+  const btn = document.getElementById('digestBtn');
+  btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> ...';
+  try {
+    const r = await fetch('/triggers/server/{{ server.id }}/digest', {method: 'POST'});
+    const j = await r.json();
+    alert(j.ok ? 'Digest yuborildi (' + j.channel + ')' : 'Xato: ' + JSON.stringify(j));
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-file-text"></i> Digest yuborish';
+  }
 }
 </script>
 {% endblock %}
