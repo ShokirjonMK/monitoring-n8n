@@ -80,6 +80,30 @@ async def reload_config(base_url: str, token: str) -> dict:
     return await _request("POST", base_url, token, "/reload", timeout=10) or {}
 
 
+# ─── Swarm ────────────────────────────────────────────────────────────────────
+
+async def swarm_info(base_url: str, token: str) -> dict:
+    return await _request("GET", base_url, token, "/swarm/info", timeout=10) or {}
+
+
+async def swarm_services(base_url: str, token: str) -> dict:
+    return await _request("GET", base_url, token, "/swarm/services", timeout=20) or {}
+
+
+async def swarm_nodes(base_url: str, token: str) -> dict:
+    return await _request("GET", base_url, token, "/swarm/nodes", timeout=15) or {}
+
+
+async def swarm_service_metrics(base_url: str, token: str, service: str) -> dict:
+    return await _request("GET", base_url, token, f"/swarm/service/{service}/metrics", timeout=20) or {}
+
+
+async def swarm_scale(base_url: str, token: str, service: str, replicas: int) -> dict:
+    return await _request("POST", base_url, token,
+                          f"/swarm/service/{service}/scale?replicas={replicas}",
+                          timeout=60) or {}
+
+
 async def gather_all_status(servers: list[dict]) -> list[dict]:
     """Concurrently fetch /status from every active server."""
     async def one(s):

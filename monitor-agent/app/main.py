@@ -571,6 +571,195 @@ def backup_file(name: str, authorization: str | None = Header(None)):
     )
 
 
+# ─── Docker Swarm ─────────────────────────────────────────────────────────────
+
+def swarm_info() -> dict:
+    """Detect if this host is in a swarm; return swarm summary if so."""
+    code, out, err = run(["docker", "info", "--format", "json"], timeout=10)
+    if code != 0:
+        return {"in_swarm": False, "error": err[:200]}
+    try:
+        info = json.loads(out)
+    except Exception:
+        return {"in_swarm": False, "error": "invalid docker info json"}
+    swarm = info.get("Swarm") or {}
+    state = swarm.get("LocalNodeState") or "inactive"
+    in_swarm = state in ("active", "pending", "locked")
+    return {
+        "in_swarm": in_swarm,
+        "state": state,
+        "node_id": swarm.get("NodeID"),
+        "is_manager": bool(swarm.get("ControlAvailable")),
+        "managers": swarm.get("Managers"),
+        "nodes": swarm.get("Nodes"),
+        "cluster_id": (swarm.get("Cluster") or {}).get("ID"),
+        "raft_status": (swarm.get("RaftStatus") or {}),
+    }
+
+
+def swarm_services() -> list[dict]:
+    """List services with replicas and basic metrics. Manager only."""
+    code, out, err = run(["docker", "service", "ls", "--format", "json"], timeout=15)
+    if code != 0:
+        return []
+    services = []
+    for line in out.strip().split("\n"):
+        if not line: continue
+        try:
+            s = json.loads(line)
+        except Exception:
+            continue
+        # Replicas: "3/3" or "3/3 (max 5 per node)"
+        rep = s.get("Replicas", "")
+        running = total = 0
+        try:
+            parts = rep.split("/", 1)
+            running = int(parts[0])
+            total = int(parts[1].split()[0])
+        except Exception:
+            pass
+        services.append({
+            "id": s.get("ID"),
+            "name": s.get("Name"),
+            "mode": s.get("Mode"),
+            "replicas_running": running,
+            "replicas_desired": total,
+            "image": s.get("Image"),
+            "ports": s.get("Ports", ""),
+        })
+    return services
+
+
+def swarm_nodes() -> list[dict]:
+    """List swarm nodes."""
+    code, out, _ = run(["docker", "node", "ls", "--format", "json"], timeout=10)
+    if code != 0:
+        return []
+    nodes = []
+    for line in out.strip().split("\n"):
+        if not line: continue
+        try:
+            n = json.loads(line)
+        except Exception:
+            continue
+        nodes.append({
+            "id": n.get("ID"),
+            "hostname": n.get("Hostname"),
+            "status": n.get("Status"),
+            "availability": n.get("Availability"),
+            "manager_status": n.get("ManagerStatus", ""),
+            "engine_version": n.get("EngineVersion"),
+            "self": "*" in (n.get("ID", "") or ""),
+        })
+    return nodes
+
+
+def swarm_service_metrics(service: str) -> dict:
+    """Aggregate CPU/memory across all running tasks of a service."""
+    # Get tasks for the service
+    code, out, _ = run([
+        "docker", "service", "ps", service, "--filter", "desired-state=running",
+        "--format", "{{.Name}} {{.CurrentState}}",
+    ], timeout=15)
+    if code != 0:
+        return {"tasks": 0, "cpu_pct": 0, "mem_pct": 0}
+
+    task_names = []
+    for line in out.strip().split("\n"):
+        if line.startswith(service + ".") and "Running" in line:
+            task_names.append(line.split()[0])
+
+    if not task_names:
+        return {"tasks": 0, "cpu_pct": 0, "mem_pct": 0}
+
+    # docker stats — local node only (limitation: cross-node stats need orchestration)
+    code, out, _ = run([
+        "docker", "stats", "--no-stream", "--format", "{{.Name}} {{.CPUPerc}} {{.MemPerc}}",
+    ], timeout=15)
+    if code != 0:
+        return {"tasks": len(task_names), "cpu_pct": 0, "mem_pct": 0}
+
+    cpu_total = mem_total = count = 0.0
+    for line in out.strip().split("\n"):
+        parts = line.split()
+        if len(parts) < 3: continue
+        name = parts[0]
+        # match swarm task containers (docker names them <service>.<n>.<id>)
+        if not any(name.startswith(t + ".") or name == t for t in task_names):
+            continue
+        try:
+            cpu = float(parts[1].rstrip("%"))
+            mem = float(parts[2].rstrip("%"))
+            cpu_total += cpu
+            mem_total += mem
+            count += 1
+        except ValueError:
+            continue
+
+    if count == 0:
+        return {"tasks": len(task_names), "cpu_pct": 0, "mem_pct": 0, "note": "no local replicas"}
+    return {
+        "tasks": len(task_names),
+        "local_replicas": int(count),
+        "cpu_pct": round(cpu_total / count, 1),
+        "mem_pct": round(mem_total / count, 1),
+    }
+
+
+def swarm_scale(service: str, replicas: int) -> dict:
+    """Scale a service. Manager only. Returns success/error."""
+    if replicas < 0 or replicas > 1000:
+        return {"ok": False, "error": "replicas must be 0..1000"}
+    code, out, err = run([
+        "docker", "service", "scale", f"{service}={replicas}", "--detach",
+    ], timeout=30)
+    if code != 0:
+        return {"ok": False, "error": (err or out)[:300]}
+    return {"ok": True, "service": service, "replicas": replicas, "stdout": out[:300]}
+
+
+@app.get("/swarm/info")
+def swarm_info_endpoint(authorization: str | None = Header(None)):
+    auth(authorization)
+    return swarm_info()
+
+
+@app.get("/swarm/services")
+def swarm_services_endpoint(authorization: str | None = Header(None)):
+    auth(authorization)
+    info = swarm_info()
+    if not info.get("in_swarm") or not info.get("is_manager"):
+        return {"in_swarm": info.get("in_swarm"), "is_manager": info.get("is_manager"),
+                "services": [], "error": "Bu node manager emas — service ro'yxatini olmaydi"}
+    return {"in_swarm": True, "services": swarm_services()}
+
+
+@app.get("/swarm/nodes")
+def swarm_nodes_endpoint(authorization: str | None = Header(None)):
+    auth(authorization)
+    info = swarm_info()
+    if not info.get("in_swarm") or not info.get("is_manager"):
+        return {"in_swarm": info.get("in_swarm"), "is_manager": info.get("is_manager"),
+                "nodes": [], "error": "Bu node manager emas — node ro'yxatini olmaydi"}
+    return {"in_swarm": True, "nodes": swarm_nodes()}
+
+
+@app.get("/swarm/service/{name}/metrics")
+def swarm_service_metrics_endpoint(name: str, authorization: str | None = Header(None)):
+    auth(authorization)
+    return {"service": name, **swarm_service_metrics(name)}
+
+
+@app.post("/swarm/service/{name}/scale")
+def swarm_scale_endpoint(name: str, replicas: int = Query(...),
+                         authorization: str | None = Header(None)):
+    auth(authorization)
+    info = swarm_info()
+    if not info.get("is_manager"):
+        return JSONResponse({"ok": False, "error": "Bu node manager emas"}, status_code=400)
+    return swarm_scale(name, replicas)
+
+
 @app.get("/config")
 def cfg(authorization: str | None = Header(None)):
     """Echo back the loaded config (sans secrets) — useful for debugging."""

@@ -688,6 +688,154 @@ def alert_ack(aid: int, _=Depends(require_login)):
     return RedirectResponse("/alerts", 302)
 
 
+# ─── Swarm management ────────────────────────────────────────────────────────
+
+@app.get("/swarm", response_class=HTMLResponse)
+async def swarm_overview(request: Request, _=Depends(require_login)):
+    """Fleet swarm overview — which servers are swarm managers."""
+    with Session(DB.engine) as s:
+        servers = list(s.exec(select(DB.Server).where(DB.Server.is_active == True)).all())
+
+    cards = []
+    for srv in servers:
+        info = await AGENT.swarm_info(srv.base_url, srv.agent_token)
+        cards.append({"server": srv, "info": info})
+    return templates.TemplateResponse("swarm.html", {
+        "request": request, "cards": cards,
+    })
+
+
+@app.get("/swarm/{sid}", response_class=HTMLResponse)
+async def swarm_detail(sid: int, request: Request, _=Depends(require_login)):
+    with Session(DB.engine) as s:
+        srv = s.exec(select(DB.Server).where(DB.Server.id == sid)).first()
+        if not srv:
+            return RedirectResponse("/swarm", 302)
+        rules = list(s.exec(
+            select(DB.ScalingRule).where(DB.ScalingRule.server_id == sid)
+        ).all())
+        events = list(s.exec(
+            select(DB.ScaleEvent)
+            .where(DB.ScaleEvent.server_id == sid)
+            .order_by(DB.ScaleEvent.created_at.desc()).limit(30)
+        ).all())
+
+    info = await AGENT.swarm_info(srv.base_url, srv.agent_token)
+    services = await AGENT.swarm_services(srv.base_url, srv.agent_token)
+    nodes = await AGENT.swarm_nodes(srv.base_url, srv.agent_token)
+
+    rules_by_service = {r.service_name: r for r in rules}
+
+    return templates.TemplateResponse("swarm_detail.html", {
+        "request": request, "server": srv,
+        "info": info, "services": services, "nodes": nodes,
+        "rules_by_service": rules_by_service, "events": events,
+    })
+
+
+@app.post("/swarm/{sid}/scale/{service}")
+async def swarm_scale_now(sid: int, service: str, replicas: int = Form(...),
+                          request: Request = None, _=Depends(require_login)):
+    """Manual scale (button in UI)."""
+    with Session(DB.engine) as s:
+        srv = s.exec(select(DB.Server).where(DB.Server.id == sid)).first()
+        if not srv:
+            return JSONResponse({"error": "not found"}, status_code=404)
+    # Get current replicas
+    services_resp = await AGENT.swarm_services(srv.base_url, srv.agent_token)
+    cur = next((x for x in services_resp.get("services", []) if x["name"] == service), None)
+    from_r = (cur or {}).get("replicas_desired", 0)
+
+    result = await AGENT.swarm_scale(srv.base_url, srv.agent_token, service, replicas)
+
+    with Session(DB.engine) as s:
+        admin_user = (request.session.get("user") if request else "admin")
+        ev = DB.ScaleEvent(
+            server_id=sid, service_name=service,
+            direction="manual", from_replicas=from_r, to_replicas=replicas,
+            reason=f"Manual by {admin_user}",
+            triggered_by=admin_user,
+            ok=bool(result.get("ok")),
+            error=(result.get("error") if not result.get("ok") else None),
+        )
+        s.add(ev); s.commit()
+
+    # Telegram
+    if result.get("ok"):
+        try:
+            await NOTIFY.send_message(
+                NOTIFY.resolve_report_channel(srv),
+                f"⚙️ <b>Manual scale</b> — <b>{srv.name}</b>\n"
+                f"Service: <code>{service}</code>\n"
+                f"Replicas: {from_r} → <b>{replicas}</b>"
+            )
+        except Exception:
+            pass
+
+    return result
+
+
+@app.get("/swarm/{sid}/rules/{service}", response_class=HTMLResponse)
+def scaling_rule_form(sid: int, service: str, request: Request, _=Depends(require_login)):
+    with Session(DB.engine) as s:
+        srv = s.exec(select(DB.Server).where(DB.Server.id == sid)).first()
+        if not srv:
+            return RedirectResponse("/swarm", 302)
+        rule = s.exec(
+            select(DB.ScalingRule)
+            .where(DB.ScalingRule.server_id == sid)
+            .where(DB.ScalingRule.service_name == service)
+        ).first()
+    return templates.TemplateResponse("scaling_rule_form.html", {
+        "request": request, "server": srv, "service": service, "rule": rule,
+    })
+
+
+@app.post("/swarm/{sid}/rules/{service}")
+def scaling_rule_save(sid: int, service: str, request: Request,
+                      metric: str = Form("cpu"),
+                      scale_up_threshold: float = Form(70.0),
+                      scale_down_threshold: float = Form(30.0),
+                      min_replicas: int = Form(1),
+                      max_replicas: int = Form(10),
+                      step: int = Form(1),
+                      cooldown_seconds: int = Form(300),
+                      is_active: str = Form("off"),
+                      _=Depends(require_login)):
+    with Session(DB.engine) as s:
+        rule = s.exec(
+            select(DB.ScalingRule)
+            .where(DB.ScalingRule.server_id == sid)
+            .where(DB.ScalingRule.service_name == service)
+        ).first()
+        if not rule:
+            rule = DB.ScalingRule(server_id=sid, service_name=service)
+        rule.metric = metric
+        rule.scale_up_threshold = max(1, min(100, scale_up_threshold))
+        rule.scale_down_threshold = max(0, min(99, scale_down_threshold))
+        rule.min_replicas = max(0, min_replicas)
+        rule.max_replicas = max(rule.min_replicas, max_replicas)
+        rule.step = max(1, step)
+        rule.cooldown_seconds = max(30, cooldown_seconds)
+        rule.is_active = (is_active == "on")
+        rule.updated_at = datetime.datetime.utcnow()
+        s.add(rule); s.commit()
+    return RedirectResponse(f"/swarm/{sid}", 302)
+
+
+@app.post("/swarm/{sid}/rules/{service}/delete")
+def scaling_rule_delete(sid: int, service: str, _=Depends(require_login)):
+    with Session(DB.engine) as s:
+        rule = s.exec(
+            select(DB.ScalingRule)
+            .where(DB.ScalingRule.server_id == sid)
+            .where(DB.ScalingRule.service_name == service)
+        ).first()
+        if rule:
+            s.delete(rule); s.commit()
+    return RedirectResponse(f"/swarm/{sid}", 302)
+
+
 # ─── Webhook receiver ─────────────────────────────────────────────────────────
 
 @app.post("/webhook/{token}")

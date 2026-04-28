@@ -94,6 +94,48 @@ class WebhookEvent(SQLModel, table=True):
     forwarded_to: Optional[str] = None
 
 
+class ScalingRule(SQLModel, table=True):
+    """Auto-scale rule for a Swarm service.
+
+    Fires when local-replica avg CPU/mem crosses thresholds. Scales the
+    service via `docker service scale`. Cooldown prevents flap.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    server_id: int = Field(index=True)              # which server (manager) hosts the service
+    service_name: str = Field(index=True)           # docker service name
+    metric: str = "cpu"                             # cpu | mem
+    scale_up_threshold: float = 70.0                # %
+    scale_down_threshold: float = 30.0              # %
+    min_replicas: int = 1
+    max_replicas: int = 10
+    step: int = 1                                   # how many replicas to add/remove per event
+    cooldown_seconds: int = 300                     # min seconds between scale ops
+    is_active: bool = True
+
+    # Runtime state
+    last_scale_at: Optional[datetime.datetime] = None
+    last_scale_to: Optional[int] = None             # last replica count we set
+    last_metric_value: Optional[float] = None
+
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
+class ScaleEvent(SQLModel, table=True):
+    """Audit log for every scale operation (auto or manual)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    server_id: int = Field(index=True)
+    service_name: str = Field(index=True)
+    direction: str                                  # up | down | manual
+    from_replicas: int
+    to_replicas: int
+    reason: Optional[str] = None                    # e.g. "cpu=85% > 70%"
+    triggered_by: str = "auto"                      # auto | <admin user>
+    ok: bool = True
+    error: Optional[str] = None
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow, index=True)
+
+
 class InstallToken(SQLModel, table=True):
     """One-time token for self-register install flow.
 

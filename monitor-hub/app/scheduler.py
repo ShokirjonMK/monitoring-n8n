@@ -379,6 +379,105 @@ async def backup_tick():
 
 # ─── Daily digest (08:00) ─────────────────────────────────────────────────────
 
+# ─── Auto-scaler tick ─────────────────────────────────────────────────────────
+
+async def autoscale_tick():
+    """Evaluate every active ScalingRule and act if thresholds + cooldown met."""
+    with Session(DB.engine) as s:
+        rules = list(s.exec(
+            select(DB.ScalingRule).where(DB.ScalingRule.is_active == True)
+        ).all())
+    if not rules:
+        return
+
+    # Group rules by server to share metric calls
+    by_server: dict[int, list[DB.ScalingRule]] = {}
+    for r in rules:
+        by_server.setdefault(r.server_id, []).append(r)
+
+    with Session(DB.engine) as s:
+        for sid, rs in by_server.items():
+            srv = s.exec(select(DB.Server).where(DB.Server.id == sid)).first()
+            if not srv or not srv.is_active:
+                continue
+            # Check that the agent is actually a manager
+            info = await AGENT.swarm_info(srv.base_url, srv.agent_token)
+            if not info or not info.get("is_manager"):
+                continue
+            services_resp = await AGENT.swarm_services(srv.base_url, srv.agent_token)
+            services_by_name = {x["name"]: x for x in services_resp.get("services", [])}
+
+            for rule in rs:
+                cur = services_by_name.get(rule.service_name)
+                if not cur:
+                    continue
+                cur_replicas = cur.get("replicas_desired", 0)
+
+                # Cooldown
+                if rule.last_scale_at:
+                    elapsed = (datetime.datetime.utcnow() - rule.last_scale_at).total_seconds()
+                    if elapsed < rule.cooldown_seconds:
+                        continue
+
+                metrics = await AGENT.swarm_service_metrics(
+                    srv.base_url, srv.agent_token, rule.service_name)
+                value = metrics.get("cpu_pct" if rule.metric == "cpu" else "mem_pct", 0) or 0
+                rule.last_metric_value = value
+
+                desired = cur_replicas
+                direction = None
+                reason = ""
+                if value >= rule.scale_up_threshold and cur_replicas < rule.max_replicas:
+                    desired = min(rule.max_replicas, cur_replicas + rule.step)
+                    direction = "up"
+                    reason = f"{rule.metric}={value}% >= {rule.scale_up_threshold}%"
+                elif value <= rule.scale_down_threshold and cur_replicas > rule.min_replicas:
+                    desired = max(rule.min_replicas, cur_replicas - rule.step)
+                    direction = "down"
+                    reason = f"{rule.metric}={value}% <= {rule.scale_down_threshold}%"
+
+                if direction is None or desired == cur_replicas:
+                    s.add(rule); s.commit()
+                    continue
+
+                # Execute scale
+                result = await AGENT.swarm_scale(
+                    srv.base_url, srv.agent_token, rule.service_name, desired)
+                rule.last_scale_at = datetime.datetime.utcnow()
+                rule.last_scale_to = desired
+
+                ev = DB.ScaleEvent(
+                    server_id=sid, service_name=rule.service_name,
+                    direction=direction,
+                    from_replicas=cur_replicas, to_replicas=desired,
+                    reason=reason, triggered_by="auto",
+                    ok=bool(result.get("ok")),
+                    error=(result.get("error") if not result.get("ok") else None),
+                )
+                s.add(ev); s.add(rule); s.commit()
+
+                # Telegram
+                if result.get("ok"):
+                    icon = "📈" if direction == "up" else "📉"
+                    await NOTIFY.send_message(
+                        NOTIFY.resolve_alert_channel(srv),
+                        f"{icon} <b>Auto-scale</b> — <b>{srv.name}</b>\n"
+                        f"Service: <code>{rule.service_name}</code>\n"
+                        f"Replicas: {cur_replicas} → <b>{desired}</b>\n"
+                        f"Sabab: {reason}"
+                    )
+                else:
+                    await NOTIFY.send_message(
+                        NOTIFY.resolve_alert_channel(srv),
+                        f"⚠️ <b>Auto-scale FAILED</b> — <b>{srv.name}</b>\n"
+                        f"Service: <code>{rule.service_name}</code> "
+                        f"({cur_replicas} → {desired})\n"
+                        f"Xato: {(result.get('error') or '?')[:200]}"
+                    )
+
+
+# ─── Daily digest ─────────────────────────────────────────────────────────────
+
 async def daily_digest():
     """Send a daily report per server to its report channel.
 
@@ -509,6 +608,8 @@ class Scheduler:
             tasks.append(loop.create_task(self._loop("watchdog", wd_int, watchdog_tick)))
         if not h or h.enable_resource:
             tasks.append(loop.create_task(self._loop("resource", rs_int, resource_tick)))
+        # Auto-scaler — same cadence as watchdog (60s default)
+        tasks.append(loop.create_task(self._loop("autoscale", wd_int, autoscale_tick)))
         if not h or h.enable_ssl_daily:
             tasks.append(loop.create_task(self._cron("ssl-daily", s_h, s_m, ssl_tick)))
         if not h or h.enable_backup_daily:

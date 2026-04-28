@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Auto-scale: {{ service }}{% endblock %}
+{% block n_swarm %}active{% endblock %}
+
+{% block content %}
+<div style="max-width:680px">
+  <div style="margin-bottom:14px">
+    <a href="/swarm/{{ server.id }}" style="font-size:13px;color:#8E8E93">
+      <i class="bi bi-chevron-left"></i> {{ server.name }}
+    </a>
+  </div>
+
+  <div class="card" style="background:linear-gradient(135deg,rgba(0,122,255,.04),rgba(0,122,255,.01));border-left:3px solid #007AFF;margin-bottom:14px">
+    <div class="card-h"><h2><i class="bi bi-magic"></i> Auto-scale qoidasi</h2></div>
+    <div style="font-size:13px;color:#3A3A3C;line-height:1.6">
+      Service: <code><b>{{ service }}</b></code><br>
+      Server: <code>{{ server.name }}</code><br><br>
+      <b>Mantiq:</b> Hub har <i>watchdog interval</i> (60s default)'da local replica'lar
+      o'rtacha CPU yoki memory'ni o'lchaydi:
+      <ul style="margin:6px 0;padding-left:22px">
+        <li>Agar threshold dan yuqori bo'lsa va max_replicas'gacha joy bor — <b>+step</b> qo'shadi</li>
+        <li>Agar threshold dan past bo'lsa va min_replicas'dan ko'p — <b>−step</b> kamaytiradi</li>
+        <li>Cooldown davomida hech qanday o'zgarish bo'lmaydi (flap'dan saqlash)</li>
+      </ul>
+      Telegram alert har scale event uchun yuboriladi.
+    </div>
+  </div>
+
+  <form method="post" action="/swarm/{{ server.id }}/rules/{{ service }}" class="card">
+
+    <div class="form-grp">
+      <label class="lbl">Metric</label>
+      <select class="sel" name="metric">
+        <option value="cpu" {% if not rule or rule.metric == 'cpu' %}selected{% endif %}>CPU %</option>
+        <option value="mem" {% if rule and rule.metric == 'mem' %}selected{% endif %}>Memory %</option>
+      </select>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="form-grp">
+        <label class="lbl">Scale UP threshold (%)</label>
+        <input class="inp" type="number" step="0.1" name="scale_up_threshold"
+               value="{{ rule.scale_up_threshold if rule else 70 }}" min="1" max="100" required>
+        <div class="hlp">Bu qiymatdan oshsa replica qo'shadi</div>
+      </div>
+      <div class="form-grp">
+        <label class="lbl">Scale DOWN threshold (%)</label>
+        <input class="inp" type="number" step="0.1" name="scale_down_threshold"
+               value="{{ rule.scale_down_threshold if rule else 30 }}" min="0" max="99" required>
+        <div class="hlp">Bu qiymatdan past bo'lsa replica kamaytiradi</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div class="form-grp">
+        <label class="lbl">Min replicas</label>
+        <input class="inp" type="number" name="min_replicas"
+               value="{{ rule.min_replicas if rule else 1 }}" min="0" required>
+      </div>
+      <div class="form-grp">
+        <label class="lbl">Max replicas</label>
+        <input class="inp" type="number" name="max_replicas"
+               value="{{ rule.max_replicas if rule else 10 }}" min="1" required>
+      </div>
+      <div class="form-grp">
+        <label class="lbl">Step</label>
+        <input class="inp" type="number" name="step"
+               value="{{ rule.step if rule else 1 }}" min="1" required>
+        <div class="hlp">Har bir o'zgarish</div>
+      </div>
+    </div>
+
+    <div class="form-grp">
+      <label class="lbl">Cooldown (sekund)</label>
+      <input class="inp" type="number" name="cooldown_seconds"
+             value="{{ rule.cooldown_seconds if rule else 300 }}" min="30" required>
+      <div class="hlp">Scale eventdan keyin shu vaqt davomida hech qanday o'zgarish bo'lmaydi (flap'dan saqlash)</div>
+    </div>
+
+    <div class="form-grp" style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <label class="lbl" style="margin:0">Faol</label>
+        <div class="hlp" style="margin-top:0">O'chirilsa qoida saqlanadi lekin ishlamaydi</div>
+      </div>
+      <label class="tgl">
+        <input type="checkbox" name="is_active" {% if not rule or rule.is_active %}checked{% endif %}>
+        <span class="tgl-s"></span>
+      </label>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:space-between;margin-top:14px">
+      <div>
+        {% if rule %}
+        <form method="post" action="/swarm/{{ server.id }}/rules/{{ service }}/delete" style="display:inline"
+              onsubmit="return confirm('Qoidani o\'chirilsinmi?')">
+          <button class="btn btn-dan btn-sm"><i class="bi bi-trash"></i> O'chirish</button>
+        </form>
+        {% endif %}
+      </div>
+      <div style="display:flex;gap:8px">
+        <a href="/swarm/{{ server.id }}" class="btn btn-sec">Bekor</a>
+        <button class="btn btn-pri" type="submit"><i class="bi bi-floppy-disk"></i> Saqlash</button>
+      </div>
+    </div>
+  </form>
+
+  {% if rule and rule.last_scale_at %}
+  <div class="card" style="margin-top:14px">
+    <div class="card-h"><h2><i class="bi bi-graph-up"></i> So'nggi runtime holat</h2></div>
+    <table class="tbl">
+      <tbody>
+        <tr><td>So'nggi metric</td><td><b>{{ rule.last_metric_value }}%</b></td></tr>
+        <tr><td>So'nggi scale</td><td>{{ rule.last_scale_at.strftime('%d.%m %H:%M:%S') }}</td></tr>
+        <tr><td>So'nggi replicas</td><td><b>{{ rule.last_scale_to }}</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

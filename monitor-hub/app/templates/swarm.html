@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Swarm{% endblock %}
+{% block n_swarm %}active{% endblock %}
+
+{% block content %}
+<div class="card-h" style="margin-bottom:14px">
+  <h2 style="margin:0">Docker Swarm clusterlar</h2>
+  <div style="font-size:12.5px;color:#8E8E93">
+    Faqat manager node'larda service ro'yxati va auto-scale ishlaydi
+  </div>
+</div>
+
+{% for c in cards %}
+{% set i = c.info %}
+<div class="srv-card" style="border-left:3px solid {% if i.is_manager %}#34C759{% elif i.in_swarm %}#FF9500{% else %}#8E8E93{% endif %}">
+  <div style="display:flex;align-items:start;justify-content:space-between;gap:14px;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0;font-size:17px">
+        {% if i.is_manager %}🟢 manager{% elif i.in_swarm %}🟠 worker{% else %}⚪ swarm yo'q{% endif %}
+        — {{ c.server.name }}
+      </h2>
+      <div style="font-size:12.5px;color:#8E8E93;margin-top:4px">
+        <code>{{ c.server.base_url }}</code>
+        {% if i.in_swarm %} · {{ i.nodes }} node · {{ i.managers }} manager{% endif %}
+      </div>
+    </div>
+    {% if i.is_manager %}
+      <a href="/swarm/{{ c.server.id }}" class="btn btn-pri btn-sm">
+        <i class="bi bi-arrow-right"></i> Service'lar
+      </a>
+    {% elif i.in_swarm %}
+      <span class="bdg bdg-wrn">manager emas</span>
+    {% else %}
+      <span class="bdg bdg-neu">swarm init qilinmagan</span>
+    {% endif %}
+  </div>
+  {% if not i.in_swarm %}
+  <div style="margin-top:10px;padding:10px 14px;background:#FAFAFA;border-radius:8px;font-size:12.5px;color:#3A3A3C">
+    Swarm yoqish uchun shu serverda: <code>docker swarm init</code>
+  </div>
+  {% endif %}
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:40px;color:#8E8E93">
+  Faol server topilmadi.
+</div>
+{% endfor %}
+{% endblock %}

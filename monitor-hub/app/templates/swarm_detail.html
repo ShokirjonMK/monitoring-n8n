@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Swarm: {{ server.name }}{% endblock %}
+{% block n_swarm %}active{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:14px">
+  <a href="/swarm" style="font-size:13px;color:#8E8E93"><i class="bi bi-chevron-left"></i> Swarm</a>
+</div>
+
+<div class="stat-grid" style="margin-bottom:14px">
+  <div class="stat"><div class="n">{{ info.nodes or 0 }}</div><div class="l">Nodes</div></div>
+  <div class="stat"><div class="n">{{ info.managers or 0 }}</div><div class="l">Managers</div></div>
+  <div class="stat"><div class="n">{{ services.services|length if services.services else 0 }}</div><div class="l">Services</div></div>
+  <div class="stat"><div class="n">{{ rules_by_service|length }}</div><div class="l">Auto-scale rules</div></div>
+</div>
+
+<!-- Services -->
+<div class="card" style="margin-bottom:14px">
+  <div class="card-h"><h2><i class="bi bi-stack"></i> Services</h2></div>
+  <div class="ios-table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Service</th><th>Image</th><th>Mode</th><th>Replicas</th>
+          <th>Auto-scale</th><th style="text-align:right">Amallar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in services.services or [] %}
+        {% set rule = rules_by_service.get(s.name) %}
+        <tr>
+          <td><strong>{{ s.name }}</strong>
+            {% if s.ports %}<div style="font-size:11px;color:#8E8E93">{{ s.ports }}</div>{% endif %}
+          </td>
+          <td style="font-size:12px;color:#8E8E93">{{ s.image[:40] }}{% if s.image|length > 40 %}...{% endif %}</td>
+          <td><span class="bdg bdg-inf">{{ s.mode }}</span></td>
+          <td>
+            <strong>{{ s.replicas_running }}/{{ s.replicas_desired }}</strong>
+            {% if s.replicas_running < s.replicas_desired %}
+              <div style="font-size:11px;color:#FF9500">launching...</div>
+            {% endif %}
+          </td>
+          <td>
+            {% if rule %}
+              {% if rule.is_active %}
+              <span class="bdg bdg-suc">{{ rule.metric }} {{ rule.scale_up_threshold }}%/{{ rule.scale_down_threshold }}%</span>
+              <div style="font-size:11px;color:#8E8E93">{{ rule.min_replicas }}–{{ rule.max_replicas }}</div>
+              {% else %}
+              <span class="bdg bdg-neu">o'chiq</span>
+              {% endif %}
+            {% else %}
+              <span class="bdg bdg-neu">yo'q</span>
+            {% endif %}
+          </td>
+          <td style="white-space:nowrap;text-align:right">
+            <button class="btn btn-sec btn-sm" onclick="manualScale('{{ s.name }}', {{ s.replicas_desired - 1 }})"
+                    {% if s.replicas_desired <= 0 %}disabled{% endif %}>−</button>
+            <span style="display:inline-block;min-width:30px;text-align:center;font-weight:700">{{ s.replicas_desired }}</span>
+            <button class="btn btn-sec btn-sm" onclick="manualScale('{{ s.name }}', {{ s.replicas_desired + 1 }})">+</button>
+            <a href="/swarm/{{ server.id }}/rules/{{ s.name }}" class="btn btn-pri btn-sm">
+              <i class="bi bi-magic"></i> Auto
+            </a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center;color:#8E8E93;padding:30px">
+          {% if services.error %}{{ services.error }}{% else %}Hech qanday service yo'q{% endif %}
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Nodes -->
+<div class="card" style="margin-bottom:14px">
+  <div class="card-h"><h2><i class="bi bi-hdd-stack"></i> Nodes</h2></div>
+  <div class="ios-table-wrap">
+    <table class="tbl">
+      <thead><tr><th>Hostname</th><th>Status</th><th>Availability</th><th>Manager</th><th>Engine</th></tr></thead>
+      <tbody>
+        {% for n in nodes.nodes or [] %}
+        <tr>
+          <td><strong>{{ n.hostname }}</strong></td>
+          <td>{% if n.status == 'Ready' %}<span class="bdg bdg-suc">{{ n.status }}</span>
+              {% else %}<span class="bdg bdg-dan">{{ n.status }}</span>{% endif %}</td>
+          <td><span class="bdg bdg-inf">{{ n.availability }}</span></td>
+          <td>
+            {% if n.manager_status %}
+              <span class="bdg bdg-warning">{{ n.manager_status }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td style="font-size:11.5px;color:#8E8E93">{{ n.engine_version }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Recent scale events -->
+<div class="card">
+  <div class="card-h"><h2><i class="bi bi-clock-history"></i> So'nggi scale eventlar</h2></div>
+  <div class="ios-table-wrap">
+    <table class="tbl">
+      <thead><tr><th>Vaqt</th><th>Service</th><th>Yo'nalish</th><th>O'zgarish</th><th>Kim</th><th>Sabab</th></tr></thead>
+      <tbody>
+        {% for ev in events %}
+        <tr>
+          <td style="white-space:nowrap;font-size:12px;color:#8E8E93">
+            {{ ev.created_at.strftime('%d.%m %H:%M') }}
+          </td>
+          <td><code style="font-size:12px">{{ ev.service_name }}</code></td>
+          <td>
+            {% if ev.direction == 'up' %}<span class="bdg bdg-suc">📈 up</span>
+            {% elif ev.direction == 'down' %}<span class="bdg bdg-warning">📉 down</span>
+            {% else %}<span class="bdg bdg-inf">manual</span>{% endif %}
+          </td>
+          <td>{{ ev.from_replicas }} → <b>{{ ev.to_replicas }}</b>
+            {% if not ev.ok %}<span class="bdg bdg-dan">FAILED</span>{% endif %}
+          </td>
+          <td style="font-size:12px;color:#8E8E93">{{ ev.triggered_by }}</td>
+          <td style="font-size:12px;color:#3A3A3C">{{ ev.reason }}{% if ev.error %} <span style="color:#d93028">· {{ ev.error[:80] }}</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center;color:#8E8E93;padding:24px">
+          Hali scale event bo'lmagan
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+async function manualScale(service, replicas) {
+  if (replicas < 0) return;
+  if (!confirm(service + ' ni ' + replicas + ' replica ga o\'tkazilsinmi?')) return;
+  const fd = new FormData();
+  fd.append('replicas', replicas);
+  const r = await fetch('/swarm/{{ server.id }}/scale/' + encodeURIComponent(service),
+                        {method: 'POST', body: fd});
+  const j = await r.json();
+  if (j.ok) {
+    setTimeout(() => location.reload(), 1500);
+  } else {
+    alert('Xato: ' + (j.error || JSON.stringify(j)));
+  }
+}
+</script>
+{% endblock %}
