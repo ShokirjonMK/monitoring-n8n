@@ -109,7 +109,7 @@
     <h2><i class="bi bi-stars"></i> AI tahlili</h2>
     <button class="btn btn-sec btn-sm" onclick="document.getElementById('aiPanel').style.display='none'"><i class="bi bi-x"></i></button>
   </div>
-  <div id="aiOut" style="white-space:pre-wrap;font-size:13.5px;line-height:1.5;font-family:-apple-system,sans-serif"></div>
+  <div id="aiOut" class="ai-md"></div>
 </div>
 
 <!-- Recent activity (24h) -->
@@ -219,12 +219,12 @@ async function explainWithAI() {
   btn.disabled = true;
   btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Tahlil qilinmoqda...';
   panel.style.display = 'block';
-  out.textContent = '⏳ Claude server holatini tahlil qilmoqda...';
+  out.innerHTML = aiLoader() + ' Server holatini tahlil qilmoqda...';
   panel.scrollIntoView({behavior:'smooth', block:'start'});
   try {
     const r = await fetch('/ai/explain-server/{{ server.id }}', {method:'POST'});
     const j = await r.json();
-    out.textContent = j.reply || j.error || '?';
+    out.innerHTML = renderMd(j.reply || j.error || '?');
   } catch (e) {
     out.textContent = 'Xato: ' + e.message;
   } finally {
@@ -237,12 +237,12 @@ async function suggestFix(alertId) {
   const panel = document.getElementById('aiPanel');
   const out = document.getElementById('aiOut');
   panel.style.display = 'block';
-  out.textContent = '⏳ Claude alert uchun yechim qidirmoqda...';
+  out.innerHTML = aiLoader() + ' Alert uchun yechim qidirilmoqda...';
   panel.scrollIntoView({behavior:'smooth', block:'start'});
   try {
     const r = await fetch('/ai/suggest-fix/' + alertId, {method:'POST'});
     const j = await r.json();
-    out.textContent = j.reply || j.error || '?';
+    out.innerHTML = renderMd(j.reply || j.error || '?');
   } catch (e) {
     out.textContent = 'Xato: ' + e.message;
   }

@@ -44,7 +44,7 @@
 <div id="aiPanel" class="card" style="display:none;margin-bottom:14px;border-left:3px solid #007AFF">
   <div class="card-h"><h2><i class="bi bi-stars"></i> AI xulosa</h2>
     <button class="btn btn-sec btn-sm" onclick="document.getElementById('aiPanel').style.display='none'"><i class="bi bi-x"></i></button></div>
-  <div id="aiOut" style="white-space:pre-wrap;font-size:13.5px;line-height:1.5"></div>
+  <div id="aiOut" class="ai-md"></div>
 </div>
 
 {% for c in cards %}
@@ -137,11 +137,11 @@ async function aiSummary() {
   const out = document.getElementById('aiOut');
   btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Tahlil qilinmoqda...';
   panel.style.display = 'block';
-  out.textContent = '⏳ Claude tahlil qilmoqda...';
+  out.innerHTML = aiLoader() + ' AI tahlil qilmoqda...';
   try {
     const r = await fetch('/ai/summarize', {method: 'POST'});
     const j = await r.json();
-    out.textContent = j.reply || j.error || '?';
+    out.innerHTML = renderMd(j.reply || j.error || '?');
   } catch (e) {
     out.textContent = 'Xato: ' + e.message;
   } finally {
